@@ -4,7 +4,7 @@ class MemorySeq(mb: MemoryBuffer, x: Long, y: Long) extends Seq[Byte] {
   outer ⇒
   val length: Int = (y - x + 1).toInt
 
-  def apply(idx: Int): Byte = if (idx < length && idx >= 0) {
+  def apply(idx: Int): Byte = if (isDefinedAt(idx)) {
     mb.get(x + idx)
   } else {
     throw new IndexOutOfBoundsException(s"idx=$idx, length=$length")
@@ -26,6 +26,8 @@ class MemorySeq(mb: MemoryBuffer, x: Long, y: Long) extends Seq[Byte] {
 
   override def tail: Seq[Byte] = drop(1)
 
+  override def init: Seq[Byte] = dropRight(1)
+
   override def drop(n: Int): Seq[Byte] = if (x <= y - n) new MemorySeq(mb, x + n, y) else Nil
 
   override def take(n: Int): Seq[Byte] = if (x <= y - n) new MemorySeq(mb, x, x + n - 1) else this
@@ -36,7 +38,8 @@ class MemorySeq(mb: MemoryBuffer, x: Long, y: Long) extends Seq[Byte] {
 
   override def slice(from: Int, until: Int): Seq[Byte] = {
     val lo = from.max(0)
-    if (until <= lo || isEmpty) Nil else this.drop(lo).take(until - lo)
+    val hi = until.min(length)
+    if (hi <= lo || isEmpty) Nil else new MemorySeq(mb, x + lo, x + hi - 1)
   }
 
   override def reverseIterator: Iterator[Byte] = new Iterator[Byte] {
@@ -59,6 +62,7 @@ class ReversedMemorySeq(ms: MemorySeq) extends Seq[Byte] {
   override def head: Byte = ms.last
   override def last: Byte = ms.head
   override def tail: Seq[Byte] = ms.dropRight(1).reverse
+  override def init: Seq[Byte] = ms.drop(1).reverse
   override def drop(n: Int): Seq[Byte] = ms.dropRight(n).reverse
   override def take(n: Int): Seq[Byte] = ms.takeRight(n).reverse
   override def dropRight(n: Int): Seq[Byte] = ms.drop(n).reverse

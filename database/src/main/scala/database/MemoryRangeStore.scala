@@ -2,21 +2,19 @@ package database
 
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
-import scala.collection.mutable.ArrayBuffer
 import BufferUtil._
 
 class MemoryRangeStore(totalSlots: Int, impl: MemoryBuffer) extends RangeApi {
   private var currSlot = 0
-  private val firstPos: Long = totalSlots.toLong * 4
-  private var currPos: Long = firstPos
+  private var currPos: Long = 0L
   // slot(n) - start pos of next
-  private val slots = new Array[Long](totalSlots + 1)
+  private val slots = new Array[Long](totalSlots)
 
   private object writeLock
 
   def size: Int = currSlot
 
-  def put(arr: Array[Byte]): Unit = {
+  def put(arr: Array[Byte]): Unit = writeLock.synchronized {
     //println(s"currPos=$currPos, arr.length=${arr.length}, rem=${impl.getSize() - arr.length - currPos}")
     impl.put(currPos, arr)
     currPos += arr.length
@@ -32,8 +30,10 @@ class MemoryRangeStore(totalSlots: Int, impl: MemoryBuffer) extends RangeApi {
     currSlot += 1
   }
 
+  def putAt(bb: ByteBuffer, idx: Int): Unit = ???
+
   def getA(x: Int): Array[Byte] = {
-    val pos = if (x == 0) firstPos else slots(x - 1)
+    val pos = if (x == 0) 0L else slots(x - 1)
     val len = (slots(x) - pos).toInt
     val arr = new Array[Byte](len)
     impl.get(pos, arr)
@@ -63,7 +63,7 @@ class MemoryRangeStore(totalSlots: Int, impl: MemoryBuffer) extends RangeApi {
     }
     val nx = 0.max(x)
     val ny = y.min(currSlot - 1)
-    val from = if (nx == 0) firstPos else slots(nx - 1)
+    val from = if (nx == 0) 0L else slots(nx - 1)
     val until = slots(ny)
     impl.slice(from, until)
   }
@@ -74,7 +74,7 @@ class MemoryRangeStore(totalSlots: Int, impl: MemoryBuffer) extends RangeApi {
     }
     val nx = 0.max(x)
     val ny = y.min(currSlot - 1)
-    val pos = if (nx == 0) firstPos else slots(nx - 1)
+    val pos = if (nx == 0) 0L else slots(nx - 1)
     val len = (slots(ny) - pos).toInt
     val arr = new Array[Byte](len)
     impl.get(pos, arr)
@@ -100,11 +100,11 @@ class MemoryRangeStore(totalSlots: Int, impl: MemoryBuffer) extends RangeApi {
 
   def print(limit: Int = 100): Unit = {
     println("*" * 30)
-    println(s"currSlot=$currSlot, currPos=$currPos, firstPos=$firstPos, totalSlots=$totalSlots")
-    println(s"slots=${slots.toList.take(currSlot).map(_ - firstPos).mkString(", ")}")
-    val sz = (limit.toLong min (slots(currSlot - 1) - firstPos)).toInt
+    println(s"currSlot=$currSlot, currPos=$currPos, totalSlots=$totalSlots")
+    println(s"slots=${slots.toList.take(currSlot).mkString(", ")}")
+    val sz = limit.toLong.min(slots(currSlot - 1)).toInt
     val memory = new Array[Byte](sz)
-    impl.get(firstPos, memory)
+    impl.get(0L, memory)
     println(s"memory=${memory.mkString(", ")}")
     var i = 0
     var sz1 = 0
@@ -112,9 +112,7 @@ class MemoryRangeStore(totalSlots: Int, impl: MemoryBuffer) extends RangeApi {
       val bb = get(i)
       i += 1
       sz1 += bb.limit()
-      val ab = ArrayBuffer.empty[Byte]
-      while (bb.hasRemaining) ab += bb.get()
-      println(s"i -> ${ab.mkString(", ")}")
+      println(s"i -> ${bb.mkString(", ")}")
     }
     println("*" * 30)
   }

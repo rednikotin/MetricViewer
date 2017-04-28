@@ -18,7 +18,8 @@ class DatabaseTest
     with Matchers
     with BeforeAndAfterAll {
 
-  //import system.dispatcher
+  import system.dispatcher
+
   val arr1: Array[Byte] = Array(1.toByte, 2.toByte, 3.toByte)
   val arr2: Array[Byte] = Array(4.toByte, 5.toByte, 6.toByte, 7.toByte)
   val arr3: Array[Byte] = Array(8.toByte, 9.toByte, 10.toByte, 11.toByte, 12.toByte)
@@ -268,6 +269,42 @@ class DatabaseTest
       assert(range.dropRight(50) === Nil)
       assert(range.dropRight(51) === Nil)
       assert(range.reverse(5) === 45)
+      assert(range.reverse.head === 50)
+      assert(range.reverse.last === 1)
+      assert(range.reverse.length === 50)
+      assert(range.reverse(49) === 1)
+      assert(range.slice(10, 15) === Seq(11, 12, 13, 14, 15))
+      assert(range.slice(0, 1) === Seq(1))
+      assert(range.slice(-10, 1) === Seq(1))
+      assert(range.slice(40, 500).last === 50)
+    }
+
+  }
+
+  /** FileRangeStoreTest **/
+  val fileTest1 = new File("data/store001")
+  fileTest1.delete()
+  val fileStore1 = new FileRangeStore(fileTest1, 256 * 1024)
+
+  fileStore1.put(ByteBuffer.wrap(arr1))
+  fileStore1.put(ByteBuffer.wrap(arr2))
+  fileStore1.put(ByteBuffer.wrap(arr3))
+
+  "fileStore1 of 3 elements" must {
+    "fileStore1.get(2).get() = 8" in {
+      fileStore1.get(2).map { bb ⇒ assert(bb.get() === 8) }
+    }
+
+    "fileStore1.get(1).limit = 4" in {
+      fileStore1.get(1).map { bb ⇒ assert(bb.limit() === 4) }
+    }
+
+    "fileStore1.get(1).get() = 4" in {
+      fileStore1.get(1).map { bb ⇒ assert(bb.get() === 4) }
+    }
+
+    "fileStore1.get(0).limit = 3" in {
+      fileStore1.get(0).map { bb ⇒ assert(bb.limit() === 3) }
     }
 
   }
