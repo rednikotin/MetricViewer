@@ -224,6 +224,13 @@ class DatabaseTest
     "rsBigRangeTest2.getRangeS(slots - 2, slots - 1).length === 2 * arrSize" in {
       assert(rsBigRangeTest2.getRangeS(slots - 2, slots - 1).length === 2 * arrSize)
     }
+
+    "rsBigRangeTest2.getRangeIterator tests" in {
+      def getIter: Iterator[ByteBuffer] = rsBigRangeTest2.getRangeIterator(slots / 3, slots / 3 + 10)
+      assert(getIter.size === 11)
+      assert(getIter.next().length === arrSize)
+    }
+
   }
 
   val rsMemSeq: MemoryRangeStore = RangeStore.createInMemory(50, 1 << 20)
