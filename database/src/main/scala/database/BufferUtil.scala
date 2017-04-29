@@ -1,6 +1,8 @@
 package database
 
 import java.nio.ByteBuffer
+import scala.concurrent.{Await, Future}
+import scala.concurrent.duration._
 
 object BufferUtil {
   implicit def richByteBuffer(bb: ByteBuffer): Seq[Byte] =
@@ -14,4 +16,7 @@ object BufferUtil {
     }
   }
 
+  implicit class FutureAwait[T](f: Future[T]) {
+    def await: T = Await.result(f, 30.seconds)
+  }
 }

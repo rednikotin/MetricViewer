@@ -17,14 +17,20 @@ class BufferPool extends LazyLogging {
     if (cnt % 100 == 2) logger.debug(s"STATS: cnt=$cnt, totalSize=$totalSize, totalTime=$totalTime")
   }
 
-  def allocate(minSize: Int): ByteBuffer = {
+  val zero: ByteBuffer = ByteBuffer.allocate(0)
+
+  def allocate(minSize: Int): ByteBuffer = if (minSize == 0) {
+    zero
+  } else {
     val size = (minSize / step + 1) * step
     val t0 = System.nanoTime()
     val bb = ByteBuffer.allocateDirect(size)
     val t1 = System.nanoTime()
     updStats(size, t1 - t0)
+    bb.limit(minSize)
     bb
   }
+
   def release(bb: ByteBuffer): Unit = {
     // gc will take care so far, no reuse :-(
   }
