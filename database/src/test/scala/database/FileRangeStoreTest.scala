@@ -1,14 +1,16 @@
 package database
 
-import java.io.File
+import java.io.{File, RandomAccessFile}
 import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
 import BufferUtil._
 
-import scala.concurrent.Future
+import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 
 class FileRangeStoreTest
     extends TestKit(ActorSystem("FileRangeStoreTest"))
@@ -114,39 +116,110 @@ class FileRangeStoreTest
       assert(fileStore.getRange(0, 0).await.get() === 1)
       assert(fileStore.getRange(4, 5).await.get() === 4)
     }
+
+    val fileTestCopy = new File("d:/store002")
+    fileTestCopy.delete()
+    val fileStoreCopy = fileStore.copyTo(fileTestCopy)
+
+    "copy test" in {
+      assert(fileStoreCopy.size === 5)
+      assert(fileStoreCopy.get(1).await.get() === 20)
+      assert(fileStoreCopy.get(2).await.get() === 23)
+      assert(fileStoreCopy.get(3).await.limit === 2)
+      assert(fileStoreCopy.getRange(1, 3).await.limit === 10)
+      assert(fileStoreCopy.getRange(1, 3).await.get === 20)
+      assert(fileStoreCopy.getRange(1, 3).await.toSeq(9) === 29)
+      assert(fileStoreCopy.getRange(1, 500).await.toSeq.last === 7)
+      assert(fileStoreCopy.getRange(200, 500).await.toSeq === Nil)
+      assert(fileStoreCopy.getRange(-1, -2).await.toSeq === Nil)
+      assert(fileStoreCopy.getRange(-1, 0).await.get() === 1)
+      assert(fileStoreCopy.getRange(0, 0).await.get() === 1)
+      assert(fileStoreCopy.getRange(4, 5).await.get() === 4)
+    }
+
   }
 
-
-  // todo: more concurrent test!!
-  "FileRangeStore flood test" must {
-    val bb = ByteBuffer.wrap(new Array[Byte](4 * 1024))
-    println(bb)
+  "FileRangeStore big test" must {
+    val buffSize = 4 * 1024
+    val floodSize = FileRangeStore.MAX_POS / buffSize
+    val arr0 = new Array[Byte](buffSize)
+    for (i ← arr0.indices) arr0(i) = i.toByte
+    val bb = ByteBuffer.wrap(arr0)
     val fileTest = new File("d:/store003")
     fileTest.delete()
-    val fileStore = new FileRangeStore(fileTest, 50000)
+    val fileStore = new FileRangeStore(fileTest, floodSize)
 
-    var max = 0
-    "99 wites" in {
-      for (i ← 1 to 50000) {
+    "failed to save > MAX_POS" in {
+      fileStore.shrink(0)
+
+      assertThrows[IndexOutOfBoundsException] {
+        for (i ← 1 to floodSize) {
+          bb.rewind()
+          fileStore.putSync(bb)
+        }
+      }
+    }
+
+    "try to flood queue" in {
+      fileStore.shrink(0)
+      fileStore.maxQueueSize = 0
+
+      var loadActive = true
+      val parallel = 4
+      for (i ← 1 to parallel) Future {
+        val arr1024 = new Array[Byte](1024)
+        for (i ← arr1024.indices) arr1024(i) = i.toByte
+        while (loadActive) {
+          val loadFile = new File(s"d:/128Mb.$i")
+          loadFile.delete()
+          val raf = new RandomAccessFile(loadFile, "rw")
+          for (i ← 1 to 128 * 1024) raf.write(arr1024)
+          raf.close()
+        }
+      }
+
+      // try to get long queue
+      val res = Future.sequence(for (i ← 1 to 40000) yield {
         bb.rewind()
-        fileStore.putAsync(bb)
-        val xxx = fileStore.queueSize
-        if (xxx > max) {
-          max = xxx
-          println(s"queueSize=${xxx}")
-        }
-      }
+        Future(fileStore.putAsync(bb))
+      })
 
-      for (i ← 1 to 10) {
-        Thread.sleep(100)
-        val xxx = fileStore.queueSize
-        if (xxx > max) {
-          max = xxx
-          println(s"queueSize=${xxx}")
-        }
-      }
+      Await.ready(res, 300 seconds)
+      loadActive = false
 
-      println(max)
+      if (fileStore.maxQueueSize >= FileRangeStore.MAX_WRITE_QUEUE) {
+        assertThrows[FileRangeStore.WriteQueueOverflowException](res.value.get.get)
+      } else {
+        println(s"Queue has not exceeded the limit during the test: maxQueueSize=${fileStore.maxQueueSize}, MAX_WRITE_QUEUE=${FileRangeStore.MAX_WRITE_QUEUE}")
+      }
+    }
+  }
+
+  "FileRangeStore tests" must {
+    rewindBBs()
+    val fileTest = new File("data/store004")
+    fileTest.delete()
+    val fileStore = new FileRangeStore(fileTest, 50)
+
+    "putAt empty" in {
+      assertThrows[IndexOutOfBoundsException](fileStore.putAt(bb1, -1))
+    }
+
+    fileStore.putAt(bb1, 10)
+    fileStore.putAt(bb2, 20)
+    fileStore.putAt(bb3, 40)
+
+    "putAt test" in {
+      assert(fileStore.size === 41)
+      assert(fileStore.get(0).await.limit() === 0)
+      assert(fileStore.get(9).await.limit() === 0)
+      assert(fileStore.get(10).await.limit() === 3)
+      assert(fileStore.get(20).await.last === 7)
+      assert(fileStore.get(39).await.limit() === 0)
+      assert(fileStore.get(40).await.toSeq === Seq(8, 9, 10, 11, 12))
+      assert(fileStore.getRange(1, 500).await.toSeq === (1 to 12))
+      assert(fileStore.getRange(200, 500).await.toSeq === Nil)
+      assertThrows[IndexOutOfBoundsException](fileStore.putAt(bb2, 21))
     }
   }
 
