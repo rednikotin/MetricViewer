@@ -15,7 +15,7 @@ object FileRangeStore {
   val STEP: Int = 4096
   val RESERVED_LIMIT: Int = 65536
   val MAX_POS: Int = Int.MaxValue
-  val MAX_WRITE_QUEUE = 10
+  val MAX_WRITE_QUEUE = 100
 
   class MMInt(mmap: MappedByteBuffer, addr: Int, initValue: Option[Int]) {
     private var cache: Option[Int] = None
@@ -43,6 +43,7 @@ object FileRangeStore {
   }
 
   case class AsyncResult(result: Int, buffer: ByteBuffer)
+  case class PutResult[T](slot: Int, result: T)
 
   implicit class RichAsynchronousFileChannel(async: AsynchronousFileChannel) {
     def put(buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Future[AsyncResult] = {
@@ -84,8 +85,22 @@ object FileRangeStore {
     }
   }
 
-  class WriteQueueOverflowException(s: String) extends RuntimeException(s: String)
+  implicit class RichMappedByteBuffer(mmap: MappedByteBuffer) {
+    def putX(shift: Int)(buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Int = {
+      val res = Try {
+        mmap.synchronized {
+          mmap.position(pos - shift)
+          mmap.put(buffer)
+          mmap.position() - pos + shift
+        }
+      }
+      callback(res.isSuccess)
+      res.get
+    }
+  }
 
+  class WriteQueueOverflowException(s: String) extends RuntimeException(s: String)
+  class MmapWriteNotEnabled extends RuntimeException
 }
 
 class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
@@ -113,6 +128,7 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
   private val bufferPool = new BufferPool
   private val reserved_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, RESERVED_LIMIT)
   private val slots_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, RESERVED_LIMIT, SLOTS_SIZE)
+  private var data_mmap: MappedByteBuffer = _
 
   reserved_mmap.load()
   slots_mmap.load()
@@ -120,6 +136,14 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
   def commitReserved(): Unit = reserved_mmap.force()
   def commitSlots(): Unit = slots_mmap.force()
   def commitAll(): Unit = async.force(false)
+
+  private var mmapWrite = false
+  def enableMmapWrite(): Unit = {
+    mmapWrite = true
+    val size = MAX_POS - SLOTS_LIMIT + 1
+    data_mmap = channel.map(FileChannel.MapMode.READ_WRITE, SLOTS_LIMIT, size)
+  }
+  private val mmapPut = data_mmap.putX(SLOTS_LIMIT)(_, _, _)
 
   private val currSlot = new MMInt(reserved_mmap, 0, if (fileCreated) Some(0) else None)
   private val currPos = new MMInt(reserved_mmap, 4, if (fileCreated) Some(SLOTS_LIMIT) else None)
@@ -131,7 +155,7 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
 
   def size: Int = currSlot.get
 
-  // for text usage
+  // for test usage
   var maxQueueSize = 0
   private val writeQueue = scala.collection.mutable.SortedSet.empty[Int]
   private def encwq(slot: Int): Unit = readWatermarkLock.synchronized {
@@ -144,13 +168,14 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
       //println(s"growing maxQueueSize=$maxQueueSize")
     }
   }
-  // todo: ??? incorrect logic ???
+
   private def deqwq(slot: Int): Unit = readWatermarkLock.synchronized {
     writeQueue.remove(slot)
     val minSlot = writeQueue.headOption.getOrElse(slot + 1)
     readWatermark = minSlot - 1
   }
   def queueSize: Int = writeQueue.size
+  
   // no sync method, we have to read readWatermark as it may be updated during the call
   def rwGap: Int = {
     val rwm = readWatermark
@@ -159,7 +184,7 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
   }
   def getReadWatermark: Int = readWatermark
 
-  private def put[T](bb: ByteBuffer, putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): T = writeLock.synchronized {
+  private def put[T](bb: ByteBuffer, putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): PutResult[T] = writeLock.synchronized {
     val len = bb.remaining()
     val slot = currSlot.get
     val pos = currPos.get
@@ -173,14 +198,15 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
     slots.set(slot, nextPos.toInt)
     currSlot += 1
     val res = putf(bb, pos, _ ⇒ deqwq(slot))
-    res
+    PutResult(slot, res)
   }
 
-  def putAsync(bb: ByteBuffer): Future[AsyncResult] = put(bb, async.put)
-  def putSync(bb: ByteBuffer): Unit = put(bb, channel.put)
-  def put(bb: ByteBuffer): Unit = putSync(bb)
+  def putAsync(bb: ByteBuffer): PutResult[Future[AsyncResult]] = put(bb, async.put)
+  def putSync(bb: ByteBuffer): PutResult[Int] = put(bb, channel.put)
+  def putSyncMmap(bb: ByteBuffer): PutResult[Int] = if (mmapWrite) put(bb, mmapPut) else throw new MmapWriteNotEnabled
+  def put(bb: ByteBuffer): PutResult[Int] = putSync(bb)
 
-  private def putAt[T](bb: ByteBuffer, idx: Int, putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): T = writeLock.synchronized {
+  private def putAt[T](bb: ByteBuffer, idx: Int, putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): PutResult[T] = writeLock.synchronized {
     if (currSlot.get < idx && idx < totalSlots) {
       while (currSlot.get < idx) {
         slots.set(currSlot.get, currPos.get)
@@ -192,15 +218,17 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
       throw new IndexOutOfBoundsException(msg)
     }
   }
-  def putAtAsync(bb: ByteBuffer, idx: Int): Future[AsyncResult] = putAt(bb, idx, async.put)
-  def putAtSync(bb: ByteBuffer, idx: Int): Unit = putAt(bb, idx, channel.put)
-  def putAt(bb: ByteBuffer, idx: Int): Unit = putAtSync(bb, idx)
+  def putAtAsync(bb: ByteBuffer, idx: Int): PutResult[Future[AsyncResult]] = putAt(bb, idx, async.put)
+  def putAtSync(bb: ByteBuffer, idx: Int): PutResult[Int] = putAt(bb, idx, channel.put)
+  def putAtSyncMmap(bb: ByteBuffer, idx: Int): PutResult[Int] = if (mmapWrite) putAt(bb, idx, mmapPut) else throw new MmapWriteNotEnabled
+  def putAt(bb: ByteBuffer, idx: Int): PutResult[Int] = putAtSync(bb, idx)
 
-  private def putRange[T](bb: ByteBuffer, offsets: Array[Int], putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): T = writeLock.synchronized {
+  private def putRange[T](bb: ByteBuffer, offsets: Array[Int], putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): PutResult[T] = writeLock.synchronized {
     val len = bb.remaining()
     val pos = currPos.get
     val nextPos = currPos.get.toLong + len
-    val maxSlot = currSlot.get - 1 + offsets.length
+    val firstSlot = currSlot.get
+    val maxSlot = firstSlot - 1 + offsets.length
     if (nextPos > MAX_POS || maxSlot >= totalSlots) {
       val msg = if (nextPos > MAX_POS) s"nextPos=$nextPos > MAX_POS=$MAX_POS" else s"(currSlot.get=${currSlot.get} - 1 + offsets.length=${offsets.length})=maxSlot=$maxSlot >= totalSlots=$totalSlots"
       throw new IndexOutOfBoundsException(msg)
@@ -214,12 +242,13 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
     slots.set(currSlot.get, currPos.get)
     currSlot += 1
     val res = putf(bb, pos, _ ⇒ deqwq(maxSlot))
-    res
+    PutResult(firstSlot, res)
   }
 
-  def putRangeAsync(bb: ByteBuffer, offsets: Array[Int]): Future[AsyncResult] = putRange(bb, offsets, async.put)
-  def putRangeSync(bb: ByteBuffer, offsets: Array[Int]): Unit = putRange(bb, offsets, channel.put)
-  def putRange(bb: ByteBuffer, offsets: Array[Int]): Unit = putRangeSync(bb, offsets)
+  def putRangeAsync(bb: ByteBuffer, offsets: Array[Int]): PutResult[Future[AsyncResult]] = putRange(bb, offsets, async.put)
+  def putRangeSync(bb: ByteBuffer, offsets: Array[Int]): PutResult[Int] = putRange(bb, offsets, channel.put)
+  def putRangeSyncMmap(bb: ByteBuffer, offsets: Array[Int]): PutResult[Int] = if (mmapWrite) putRange(bb, offsets, mmapPut) else throw new MmapWriteNotEnabled
+  def putRange(bb: ByteBuffer, offsets: Array[Int]): PutResult[Int] = putRangeSync(bb, offsets)
 
   def get(idx: Int): Future[ByteBuffer] = {
     if (idx > readWatermark || idx < 0) {
@@ -300,7 +329,7 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
     var i = 0
     var sz1 = 0
     while (sz1 < limit && i < currSlot.get) {
-      val bb = get(i).await
+      val bb = get(i).await()
       i += 1
       sz1 += bb.limit()
       println(s"i -> ${bb.mkString(", ")}")

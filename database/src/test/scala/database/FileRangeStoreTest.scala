@@ -45,10 +45,10 @@ class FileRangeStoreTest
     fileStore1.put(bb3)
 
     "fileStore1 of 3 elements" in {
-      assert(fileStore1.get(2).await.get() === 8)
-      assert(fileStore1.get(1).await.limit() === 4)
-      assert(fileStore1.get(1).await.get() === 4)
-      assert(fileStore1.get(0).await.limit() === 3)
+      assert(fileStore1.get(2).await().get() === 8)
+      assert(fileStore1.get(1).await().limit() === 4)
+      assert(fileStore1.get(1).await().get() === 4)
+      assert(fileStore1.get(0).await().limit() === 3)
     }
 
     fileStore1.commitAll()
@@ -60,19 +60,19 @@ class FileRangeStoreTest
     fileStore2.put(bb3)
 
     "fileStore2 of 3+3 elements" in {
-      assert(fileStore2.get(5).await.get() === 8)
-      assert(fileStore2.get(4).await.limit() === 4)
-      assert(fileStore2.get(4).await.get() === 4)
-      assert(fileStore2.get(3).await.limit() === 3)
+      assert(fileStore2.get(5).await().get() === 8)
+      assert(fileStore2.get(4).await().limit() === 4)
+      assert(fileStore2.get(4).await().get() === 4)
+      assert(fileStore2.get(3).await().limit() === 3)
     }
 
     "fileStore2 shrink to 3 elements" in {
       fileStore2.shrink(3)
       assert(fileStore2.size === 3)
-      assert(fileStore2.get(2).await.get() === 8)
-      assert(fileStore2.get(1).await.limit() === 4)
-      assert(fileStore2.get(1).await.get() === 4)
-      assert(fileStore2.get(0).await.limit() === 3)
+      assert(fileStore2.get(2).await().get() === 8)
+      assert(fileStore2.get(1).await().limit() === 4)
+      assert(fileStore2.get(1).await().get() === 4)
+      assert(fileStore2.get(0).await().limit() === 3)
     }
 
     "fileStore2 shrink to 0 elements" in {
@@ -103,18 +103,18 @@ class FileRangeStoreTest
 
     "fileStore test" in {
       assert(fileStore.size === 5)
-      assert(fileStore.get(1).await.get() === 20)
-      assert(fileStore.get(2).await.get() === 23)
-      assert(fileStore.get(3).await.limit === 2)
-      assert(fileStore.getRange(1, 3).await.limit === 10)
-      assert(fileStore.getRange(1, 3).await.get === 20)
-      assert(fileStore.getRange(1, 3).await.toSeq(9) === 29)
-      assert(fileStore.getRange(1, 500).await.toSeq.last === 7)
-      assert(fileStore.getRange(200, 500).await.toSeq === Nil)
-      assert(fileStore.getRange(-1, -2).await.toSeq === Nil)
-      assert(fileStore.getRange(-1, 0).await.get() === 1)
-      assert(fileStore.getRange(0, 0).await.get() === 1)
-      assert(fileStore.getRange(4, 5).await.get() === 4)
+      assert(fileStore.get(1).await().get() === 20)
+      assert(fileStore.get(2).await().get() === 23)
+      assert(fileStore.get(3).await().limit === 2)
+      assert(fileStore.getRange(1, 3).await().limit === 10)
+      assert(fileStore.getRange(1, 3).await().get === 20)
+      assert(fileStore.getRange(1, 3).await().toSeq(9) === 29)
+      assert(fileStore.getRange(1, 500).await().toSeq.last === 7)
+      assert(fileStore.getRange(200, 500).await().toSeq === Nil)
+      assert(fileStore.getRange(-1, -2).await().toSeq === Nil)
+      assert(fileStore.getRange(-1, 0).await().get() === 1)
+      assert(fileStore.getRange(0, 0).await().get() === 1)
+      assert(fileStore.getRange(4, 5).await().get() === 4)
     }
 
     val fileTestCopy = new File("d:/store002")
@@ -123,18 +123,18 @@ class FileRangeStoreTest
 
     "copy test" in {
       assert(fileStoreCopy.size === 5)
-      assert(fileStoreCopy.get(1).await.get() === 20)
-      assert(fileStoreCopy.get(2).await.get() === 23)
-      assert(fileStoreCopy.get(3).await.limit === 2)
-      assert(fileStoreCopy.getRange(1, 3).await.limit === 10)
-      assert(fileStoreCopy.getRange(1, 3).await.get === 20)
-      assert(fileStoreCopy.getRange(1, 3).await.toSeq(9) === 29)
-      assert(fileStoreCopy.getRange(1, 500).await.toSeq.last === 7)
-      assert(fileStoreCopy.getRange(200, 500).await.toSeq === Nil)
-      assert(fileStoreCopy.getRange(-1, -2).await.toSeq === Nil)
-      assert(fileStoreCopy.getRange(-1, 0).await.get() === 1)
-      assert(fileStoreCopy.getRange(0, 0).await.get() === 1)
-      assert(fileStoreCopy.getRange(4, 5).await.get() === 4)
+      assert(fileStoreCopy.get(1).await().get() === 20)
+      assert(fileStoreCopy.get(2).await().get() === 23)
+      assert(fileStoreCopy.get(3).await().limit === 2)
+      assert(fileStoreCopy.getRange(1, 3).await().limit === 10)
+      assert(fileStoreCopy.getRange(1, 3).await().get === 20)
+      assert(fileStoreCopy.getRange(1, 3).await().toSeq(9) === 29)
+      assert(fileStoreCopy.getRange(1, 500).await().toSeq.last === 7)
+      assert(fileStoreCopy.getRange(200, 500).await().toSeq === Nil)
+      assert(fileStoreCopy.getRange(-1, -2).await().toSeq === Nil)
+      assert(fileStoreCopy.getRange(-1, 0).await().get() === 1)
+      assert(fileStoreCopy.getRange(0, 0).await().get() === 1)
+      assert(fileStoreCopy.getRange(4, 5).await().get() === 4)
     }
 
   }
@@ -211,14 +211,14 @@ class FileRangeStoreTest
 
     "putAt test" in {
       assert(fileStore.size === 41)
-      assert(fileStore.get(0).await.limit() === 0)
-      assert(fileStore.get(9).await.limit() === 0)
-      assert(fileStore.get(10).await.limit() === 3)
-      assert(fileStore.get(20).await.last === 7)
-      assert(fileStore.get(39).await.limit() === 0)
-      assert(fileStore.get(40).await.toSeq === Seq(8, 9, 10, 11, 12))
-      assert(fileStore.getRange(1, 500).await.toSeq === (1 to 12))
-      assert(fileStore.getRange(200, 500).await.toSeq === Nil)
+      assert(fileStore.get(0).await().limit() === 0)
+      assert(fileStore.get(9).await().limit() === 0)
+      assert(fileStore.get(10).await().limit() === 3)
+      assert(fileStore.get(20).await().last === 7)
+      assert(fileStore.get(39).await().limit() === 0)
+      assert(fileStore.get(40).await().toSeq === Seq(8, 9, 10, 11, 12))
+      assert(fileStore.getRange(1, 500).await().toSeq === (1 to 12))
+      assert(fileStore.getRange(200, 500).await().toSeq === Nil)
       assertThrows[IndexOutOfBoundsException](fileStore.putAt(bb2, 21))
     }
   }

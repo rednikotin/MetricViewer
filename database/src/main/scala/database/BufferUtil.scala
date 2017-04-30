@@ -17,6 +17,6 @@ object BufferUtil {
   }
 
   implicit class FutureAwait[T](f: Future[T]) {
-    def await: T = Await.result(f, 30.seconds)
+    def await(atMost: Duration = 30 seconds): T = Await.result(f, atMost)
   }
 }

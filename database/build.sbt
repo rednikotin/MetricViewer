@@ -46,5 +46,5 @@ def formattingPreferences =
 
 def commonSettings: Seq[Setting[_]] = Seq(
   scalaVersion := scalaV,
-  javaOptions ++= Seq("-Xmx4G", "-Xms2G", "-XX:+UseG1GC")
+  javaOptions ++= Seq("-Xmx8G", "-Xms4G", "-XX:+UseG1GC")
 ) ++ scalariformSupportformatSettings
