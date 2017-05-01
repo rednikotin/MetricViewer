@@ -4,13 +4,14 @@ import java.io.{File, RandomAccessFile}
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 
-import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
+import org.scalatest.{BeforeAndAfterAll, Matchers, Tag, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
 import BufferUtil._
 import database.FileRangeStore._
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
+import MyTags._
 
 class FileRangeStoreTest
     extends TestKit(ActorSystem("FileRangeStoreTest"))
@@ -103,7 +104,7 @@ class FileRangeStoreTest
       28.toByte, 29.toByte
     )
     val bbMid = ByteBuffer.wrap(arrMid)
-    val offsets = Array(3, 8)
+    val offsets = Array(3, 8, 10)
     fileStore.putRange(bbMid, offsets)
     fileStore.put(bb2)
 
@@ -155,7 +156,7 @@ class FileRangeStoreTest
     fileTest.delete()
     val fileStore = new FileRangeStore(fileTest, floodSize)
 
-    "failed to save > MAX_POS" in {
+    "failed to save > MAX_POS" taggedAs BigTest in {
       fileStore.shrink(0)
 
       assertThrows[WriteBeyondMaxPosException] {
