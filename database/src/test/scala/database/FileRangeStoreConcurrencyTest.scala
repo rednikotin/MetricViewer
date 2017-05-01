@@ -54,7 +54,7 @@ class FileRangeStoreConcurrencyTest
     }
   }
 
-  def infoReport(fileStore: FileRangeStore, cnt: Int, t0: Long, ress: Seq[Future[Unit]]): Future[Unit] = {
+  def infoReport(fileStore: FileRangeStore, cnt: Int, t0: Long, ress: Seq[Future[Unit]], size: Int = sz): Future[Unit] = {
     import independent.dispatcher
     var notCompleted = true
     var pervNotCompleted = true
@@ -86,7 +86,7 @@ class FileRangeStoreConcurrencyTest
     }.andThen {
       case _ ⇒
         val t1 = System.nanoTime()
-        println(s"saved $cnt of $sz in ${(t1 - t0).toDouble / 1e9} seconds")
+        println(s"saved $cnt of $size in ${(t1 - t0).toDouble / 1e9} seconds")
     }.map(_ ⇒ {})
   }
 
@@ -113,8 +113,8 @@ class FileRangeStoreConcurrencyTest
   val sz = 4096
   //val sz = 1024 * 1024
   //val sz = 256
-  //val dir = "data/"
-  val dir = "d:/"
+  val dir = "data/"
+  //val dir = "d:/"
 
   "FileRangeStore Concurrency test" must {
     //Thread.sleep(5000)
@@ -243,6 +243,84 @@ class FileRangeStoreConcurrencyTest
       val distinct = res.map(_._2).distinct.size
       assert(distinct === cnt)
       assert(fileStore.get(slotCheck).await().asIntBuffer().get(0) === iSlotCheck)
+    }
+  }
+
+  "FileRangeStore async putRange test" must {
+    //Thread.sleep(5000)
+    System.gc()
+
+    val fileTest = new File(s"${dir}storeC003")
+    fileTest.delete()
+    val slots = Int.MaxValue / sz
+    val fileStore = new FileRangeStore(fileTest, slots)
+    fileStore.enableMmapWrite()
+    val arr = new Array[Byte](sz)
+    for (i ← arr.indices) arr(i) = i.toByte
+    val cnt = (FileRangeStore.MAX_POS - fileStore.SLOTS_LIMIT) / sz
+    val rangeSize = 1 << 14
+    //val cnt = 256
+    //val rangeSize = 16
+    val rangesCnt = cnt / rangeSize
+
+    def put(p: Promise[Unit], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      try {
+        val cap = sz * rangeSize.min(cnt - rangeSize * i)
+        if (cap > 0) {
+          val bb = ByteBuffer.allocateDirect(cap)
+          val buffs = cap / sz
+          val startN = i * rangeSize
+          for (j ← 0 until buffs) {
+            val bb0 = ByteBuffer.wrap(arr.clone())
+            bb0.asIntBuffer().put(0, startN + j)
+            bb.put(bb0)
+          }
+          val offsets = (1 to buffs).map(_ * sz).toArray
+          bb.flip()
+          val res = fileStore.putRangeAsync(bb, offsets)
+          //println(s"i=$i, cap=$cap, buffs=$buffs, startN=$startN, offsets=${offsets.toSeq}, res=$res")
+        }
+        p.success()
+      } catch {
+        case ex: FileRangeStore.WriteQueueOverflowException ⇒
+          after200ms(Future(put(p, i)))
+        case ex: Throwable ⇒
+          p.failure(ex)
+          ex.printStackTrace()
+      }
+    } else {
+      after200ms(Future(put(p, i)))
+    }
+
+    val t0 = System.nanoTime()
+    val ress: mutable.Buffer[Future[Unit]] = scala.collection.mutable.Buffer.empty
+    val res = infoReport(fileStore, rangesCnt + 1, t0, ress, sz * rangeSize)
+    for (i ← 0 to rangesCnt) {
+      val p = Promise[Unit]()
+      Future(put(p, i))
+      ress += p.future
+    }
+    res.await(5 minutes)
+    fileStore.commitAll()
+
+    "look Ok after concurrent range inserting" in {
+      assert(fileStore.size === cnt)
+      assert(fileStore.get(123).await().size === sz)
+
+      val t0 = System.nanoTime()
+      val res: Seq[(Int, Int, Long)] = Future.sequence(for (i ← scala.util.Random.shuffle((0 until cnt).toList)) yield {
+        val t0 = System.nanoTime()
+        fileStore.get(i).map { bb ⇒
+          val t1 = System.nanoTime()
+          (i, bb.asIntBuffer().get(0), t1 - t0)
+        }
+      }).await(10 minutes)
+      val t1 = System.nanoTime()
+      pctReport(res.map(_._3))
+      println(s"read $cnt of $sz in ${(t1 - t0).toDouble / 1e9} seconds")
+
+      val distinct = res.map(_._2).distinct.size
+      assert(distinct === cnt)
     }
 
   }

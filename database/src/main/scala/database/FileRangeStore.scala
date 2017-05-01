@@ -252,8 +252,10 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
       currSlot += 1
     }
     currPos += len
-    slots.set(currSlot.get, currPos.get)
-    currSlot += 1
+    if (offsets.last < len) {
+      slots.set(currSlot.get, currPos.get)
+      currSlot += 1
+    }
     val res = putf(bb, pos, _ ⇒ deqwq(maxSlot))
     PutResult(firstSlot, res)
   }
