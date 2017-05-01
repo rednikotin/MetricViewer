@@ -10,7 +10,6 @@ import scala.util.Try
 
 // todo: cleanup after failed write
 // todo: bulk load api
-// todo: sort exception for use cases (should be different!!!)
 object FileRangeStore {
   val STEP: Int = 4096
   val RESERVED_LIMIT: Int = 65536
@@ -99,8 +98,14 @@ object FileRangeStore {
     }
   }
 
-  class WriteQueueOverflowException(s: String) extends RuntimeException(s: String)
-  class MmapWriteNotEnabled extends RuntimeException
+  class FileRangeStoreException(s: String) extends RuntimeException(s: String)
+  class WriteQueueOverflowException(s: String) extends FileRangeStoreException(s: String)
+  class WriteBeyondMaxPosException(s: String) extends FileRangeStoreException(s: String)
+  class NoAvailableSlotsException(s: String) extends FileRangeStoreException(s: String)
+  class SlotAlreadyUsedException(s: String) extends FileRangeStoreException(s: String)
+  class NegativeSlotException(s: String) extends FileRangeStoreException(s: String)
+  class ReadAboveWatermarkException(s: String) extends FileRangeStoreException(s: String)
+  class MmapWriteNotEnabled extends FileRangeStoreException("MMAP writes are not explicitly enabled")
 }
 
 class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
@@ -175,7 +180,7 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
     readWatermark = minSlot - 1
   }
   def queueSize: Int = writeQueue.size
-  
+
   // no sync method, we have to read readWatermark as it may be updated during the call
   def rwGap: Int = {
     val rwm = readWatermark
@@ -189,9 +194,11 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
     val slot = currSlot.get
     val pos = currPos.get
     val nextPos = pos.toLong + len
-    if (nextPos > MAX_POS || currSlot.get >= totalSlots) {
-      val msg = if (nextPos > MAX_POS) s"nextPos=$nextPos > MAX_POS=$MAX_POS" else s"currSlot.get=${currSlot.get} >= totalSlots=$totalSlots"
-      throw new IndexOutOfBoundsException(msg)
+    if (nextPos > MAX_POS) {
+      throw new WriteBeyondMaxPosException(s"nextPos=$nextPos > MAX_POS=$MAX_POS")
+    }
+    if (currSlot.get >= totalSlots) {
+      throw new NoAvailableSlotsException(s"currSlot.get=${currSlot.get} >= totalSlots=$totalSlots")
     }
     encwq(slot)
     currPos.set(nextPos.toInt)
@@ -207,16 +214,20 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
   def put(bb: ByteBuffer): PutResult[Int] = putSync(bb)
 
   private def putAt[T](bb: ByteBuffer, idx: Int, putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): PutResult[T] = writeLock.synchronized {
-    if (currSlot.get < idx && idx < totalSlots) {
-      while (currSlot.get < idx) {
-        slots.set(currSlot.get, currPos.get)
-        currSlot += 1
-      }
-      put(bb, putf)
-    } else {
-      val msg = if (currSlot.get < idx) s"currSlot.get=${currSlot.get} < idx=$idx" else s"idx=$idx < totalSlots=$totalSlots"
-      throw new IndexOutOfBoundsException(msg)
+    if (idx >= totalSlots) {
+      throw new NoAvailableSlotsException(s"idx=$idx >= totalSlots=$totalSlots")
     }
+    if (idx < 0) {
+      throw new NegativeSlotException(s"idx=$idx")
+    }
+    if (idx < currSlot.get) {
+      throw new SlotAlreadyUsedException(s"idx=$idx < currSlot.get=${currSlot.get}")
+    }
+    while (currSlot.get < idx) {
+      slots.set(currSlot.get, currPos.get)
+      currSlot += 1
+    }
+    put(bb, putf)
   }
   def putAtAsync(bb: ByteBuffer, idx: Int): PutResult[Future[AsyncResult]] = putAt(bb, idx, async.put)
   def putAtSync(bb: ByteBuffer, idx: Int): PutResult[Int] = putAt(bb, idx, channel.put)
@@ -229,9 +240,11 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
     val nextPos = currPos.get.toLong + len
     val firstSlot = currSlot.get
     val maxSlot = firstSlot - 1 + offsets.length
-    if (nextPos > MAX_POS || maxSlot >= totalSlots) {
-      val msg = if (nextPos > MAX_POS) s"nextPos=$nextPos > MAX_POS=$MAX_POS" else s"(currSlot.get=${currSlot.get} - 1 + offsets.length=${offsets.length})=maxSlot=$maxSlot >= totalSlots=$totalSlots"
-      throw new IndexOutOfBoundsException(msg)
+    if (nextPos > MAX_POS) {
+      throw new WriteBeyondMaxPosException(s"nextPos=$nextPos > MAX_POS=$MAX_POS")
+    }
+    if (maxSlot >= totalSlots) {
+      throw new NoAvailableSlotsException(s"(currSlot.get=${currSlot.get} - 1 + offsets.length=${offsets.length})=maxSlot=$maxSlot >= totalSlots=$totalSlots")
     }
     encwq(maxSlot)
     for (i ← offsets.indices) {
@@ -251,9 +264,11 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
   def putRange(bb: ByteBuffer, offsets: Array[Int]): PutResult[Int] = putRangeSync(bb, offsets)
 
   def get(idx: Int): Future[ByteBuffer] = {
-    if (idx > readWatermark || idx < 0) {
-      val msg = if (idx > readWatermark) s"idx=$idx > readWatermark=$readWatermark" else s"idx=$idx < 0"
-      throw new IndexOutOfBoundsException(msg)
+    if (idx < 0) {
+      throw new NegativeSlotException(s"idx=$idx")
+    }
+    if (idx > readWatermark) {
+      throw new ReadAboveWatermarkException(s"idx=$idx > readWatermark=$readWatermark")
     }
     val pos = if (idx == 0) SLOTS_LIMIT else slots.get(idx - 1)
     val len = slots.get(idx) - pos
@@ -291,22 +306,23 @@ class FileRangeStore(val file: File, totalSlots: Int) extends RangeAsyncApi {
   }
 
   def shrink(newSize: Int): Unit = writeLock.synchronized {
-    if (newSize < 0 || newSize > currSlot.get) {
-      val msg = if (newSize < 0) s"newSize=$newSize < 0" else s"newSize=$newSize > currSlot.get=${currSlot.get}"
-      throw new IndexOutOfBoundsException(msg)
+    if (newSize < 0) {
+      throw new NegativeSlotException(s"newSize=$newSize < 0")
     }
-    if (writeQueue.nonEmpty) {
-      Thread.sleep(1000)
-      val len = writeQueue.size
-      if (len > 0) {
-        throw new IllegalStateException(s"Unable to shrink file with pending IO on store, writeQueue.size=$len")
+    if (newSize < currSlot.get) {
+      if (writeQueue.nonEmpty) {
+        Thread.sleep(1000)
+        val len = writeQueue.size
+        if (len > 0) {
+          throw new IllegalStateException(s"Unable to shrink file with pending IO on store, writeQueue.size=$len")
+        }
       }
+      val maxSlot = currSlot.get
+      currSlot.set(newSize)
+      for (i ← newSize until maxSlot) slots.set(i, 0)
+      currPos.set(if (newSize > 0) slots.get(newSize - 1) else SLOTS_LIMIT)
+      readWatermark = newSize - 1
     }
-    val maxSlot = currSlot.get
-    currSlot.set(newSize)
-    for (i ← newSize until maxSlot) slots.set(i, 0)
-    currPos.set(if (newSize > 0) slots.get(newSize - 1) else SLOTS_LIMIT)
-    readWatermark = newSize - 1
   }
 
   def copyTo(toFile: File): FileRangeStore = {

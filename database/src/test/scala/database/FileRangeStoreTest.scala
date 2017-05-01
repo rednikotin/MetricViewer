@@ -8,7 +8,7 @@ import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
 import BufferUtil._
-
+import database.FileRangeStore._
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
 
@@ -24,15 +24,21 @@ class FileRangeStoreTest
   val arr1: Array[Byte] = Array(1.toByte, 2.toByte, 3.toByte)
   val arr2: Array[Byte] = Array(4.toByte, 5.toByte, 6.toByte, 7.toByte)
   val arr3: Array[Byte] = Array(8.toByte, 9.toByte, 10.toByte, 11.toByte, 12.toByte)
+  val arr4: Array[Byte] = Array(13.toByte, 14.toByte)
+  val arr5: Array[Byte] = Array(42.toByte)
 
   val bb1: ByteBuffer = ByteBuffer.wrap(arr1)
   val bb2: ByteBuffer = ByteBuffer.wrap(arr2)
   val bb3: ByteBuffer = ByteBuffer.wrap(arr3)
+  val bb4: ByteBuffer = ByteBuffer.wrap(arr4)
+  val bb5: ByteBuffer = ByteBuffer.wrap(arr5)
 
   def rewindBBs(): Unit = {
     bb1.rewind()
     bb2.rewind()
     bb3.rewind()
+    bb4.rewind()
+    bb5.rewind()
   }
 
   "FileRangeStore tests" must {
@@ -78,7 +84,7 @@ class FileRangeStoreTest
     "fileStore2 shrink to 0 elements" in {
       fileStore2.shrink(0)
       assert(fileStore2.size === 0)
-      assertThrows[IndexOutOfBoundsException](fileStore2.get(0))
+      assertThrows[ReadAboveWatermarkException](fileStore2.get(0))
     }
 
     fileStore2.raf.getChannel.close()
@@ -152,7 +158,7 @@ class FileRangeStoreTest
     "failed to save > MAX_POS" in {
       fileStore.shrink(0)
 
-      assertThrows[IndexOutOfBoundsException] {
+      assertThrows[WriteBeyondMaxPosException] {
         for (i ← 1 to floodSize) {
           bb.rewind()
           fileStore.putSync(bb)
@@ -188,7 +194,7 @@ class FileRangeStoreTest
       loadActive = false
 
       if (fileStore.maxQueueSize >= FileRangeStore.MAX_WRITE_QUEUE) {
-        assertThrows[FileRangeStore.WriteQueueOverflowException](res.value.get.get)
+        assertThrows[WriteQueueOverflowException](res.value.get.get)
       } else {
         println(s"Queue has not exceeded the limit during the test: maxQueueSize=${fileStore.maxQueueSize}, MAX_WRITE_QUEUE=${FileRangeStore.MAX_WRITE_QUEUE}")
       }
@@ -202,24 +208,26 @@ class FileRangeStoreTest
     val fileStore = new FileRangeStore(fileTest, 50)
 
     "putAt empty" in {
-      assertThrows[IndexOutOfBoundsException](fileStore.putAt(bb1, -1))
+      assertThrows[NegativeSlotException](fileStore.putAt(bb1, -1))
     }
 
     fileStore.putAt(bb1, 10)
     fileStore.putAt(bb2, 20)
     fileStore.putAt(bb3, 40)
+    fileStore.putAt(bb4, 41)
+    fileStore.putAt(bb5, 42)
 
     "putAt test" in {
-      assert(fileStore.size === 41)
+      assert(fileStore.size === 43)
       assert(fileStore.get(0).await().limit() === 0)
       assert(fileStore.get(9).await().limit() === 0)
       assert(fileStore.get(10).await().limit() === 3)
       assert(fileStore.get(20).await().last === 7)
       assert(fileStore.get(39).await().limit() === 0)
       assert(fileStore.get(40).await().toSeq === Seq(8, 9, 10, 11, 12))
-      assert(fileStore.getRange(1, 500).await().toSeq === (1 to 12))
+      assert(fileStore.getRange(1, 500).await().toSeq === ((1 to 14) :+ 42))
       assert(fileStore.getRange(200, 500).await().toSeq === Nil)
-      assertThrows[IndexOutOfBoundsException](fileStore.putAt(bb2, 21))
+      assertThrows[SlotAlreadyUsedException](fileStore.putAt(bb2, 21))
     }
   }
 
