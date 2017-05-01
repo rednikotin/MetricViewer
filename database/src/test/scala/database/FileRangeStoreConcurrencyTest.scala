@@ -19,9 +19,9 @@ class FileRangeStoreConcurrencyTest
     with Matchers
     with BeforeAndAfterAll {
 
-  val sz = 4096
+  //val sz = 4096
   //val sz = 1024 * 1024
-  //val sz = 256
+  val sz = 256
   val dir = "data/"
   //val dir = "d:/"
   val smallI = 5000
@@ -121,8 +121,8 @@ class FileRangeStoreConcurrencyTest
     }
   }
 
-  "FileRangeStore Concurrency test" must {
-    "look Ok after concurrent inserting" taggedAs FileRangeStoreConcurrency in {
+  "FileRangeStore Concurrency async test" must {
+    "look Ok after concurrent inserting" taggedAs (FileRangeStoreAsync, FileRangeStoreConcurrency) in {
       System.gc()
 
       val fileTest = new File(s"${dir}storeC001")
@@ -188,7 +188,7 @@ class FileRangeStoreConcurrencyTest
   }
 
   "FileRangeStore MMAP/Concurrency test" must {
-    "look Ok after concurrent inserting" taggedAs FileRangeStoreMMAPConcurrency in {
+    "look Ok after concurrent inserting" taggedAs (FileRangeStoreMMAP, FileRangeStoreConcurrency) in {
       System.gc()
 
       val fileTest = new File(s"${dir}storeC002")
@@ -254,7 +254,7 @@ class FileRangeStoreConcurrencyTest
   }
 
   "FileRangeStore async putRange test" must {
-    "look Ok after concurrent range inserting" taggedAs FileRangeStoreAsyncPutRange in {
+    "look Ok after concurrent range inserting" taggedAs (FileRangeStoreAsyncPutRange, FileRangeStoreConcurrency) in {
       System.gc()
 
       val fileTest = new File(s"${dir}storeC003")
@@ -335,7 +335,7 @@ class FileRangeStoreConcurrencyTest
   }
 
   "FileRangeStore putRange MMAP test" must {
-    "look Ok after concurrent range inserting" taggedAs FileRangeStoreAsyncPutRange in {
+    "look Ok after concurrent range inserting" taggedAs (FileRangeStorePutRangeMMAP, FileRangeStoreConcurrency) in {
       System.gc()
 
       val fileTest = new File(s"${dir}storeC005")
@@ -416,7 +416,7 @@ class FileRangeStoreConcurrencyTest
   }
 
   "FileRangeStore async putRangeAt test" must {
-    "look Ok after concurrent rangeAt inserting" taggedAs FileRangeStoreAsyncPutRangeAt in {
+    "look Ok after concurrent rangeAt inserting" taggedAs (FileRangeStoreAsyncPutRangeAt, FileRangeStoreConcurrency) in {
       System.gc()
 
       val fileTest = new File(s"${dir}storeC004")
@@ -501,7 +501,7 @@ class FileRangeStoreConcurrencyTest
   // *** AsyncInFuture testing!
 
   "FileRangeStore Concurrency async in future test" must {
-    "look Ok after concurrent inserting" taggedAs FileRangeStoreConcurrencyAsyncFuture in {
+    "look Ok after concurrent inserting" taggedAs (FileRangeStoreConcurrencyAsyncFuture, FileRangeStoreConcurrency) in {
       //Thread.sleep(5000)
       System.gc()
 
@@ -569,7 +569,7 @@ class FileRangeStoreConcurrencyTest
   }
 
   "FileRangeStore MMAP/Concurrency async in future test" must {
-    "look Ok after concurrent inserting" taggedAs FileRangeStoreMMAPConcurrencyAsyncFuture in {
+    "look Ok after concurrent inserting" taggedAs (FileRangeStoreMMAPConcurrencyAsyncFuture, FileRangeStoreConcurrency) in {
       System.gc()
 
       val fileTest = new File(s"${dir}storeAC002")
@@ -638,7 +638,7 @@ class FileRangeStoreConcurrencyTest
   }
 
   "FileRangeStore async putRange async in future test" must {
-    "look Ok after concurrent range inserting" taggedAs FileRangeStoreAsyncPutRangeAsyncFuture in {
+    "look Ok after concurrent range inserting" taggedAs (FileRangeStoreAsyncPutRangeAsyncFuture, FileRangeStoreConcurrency) in {
       System.gc()
 
       val fileTest = new File(s"${dir}storeAC003")
@@ -720,7 +720,7 @@ class FileRangeStoreConcurrencyTest
   }
 
   "FileRangeStore async putRange MMAP async in future test" must {
-    "look Ok after concurrent range inserting" taggedAs FileRangeStoreAsyncPutRangeAsyncFuture in {
+    "look Ok after concurrent range inserting" taggedAs (FileRangeStorePutRangeMMAPAsyncFuture, FileRangeStoreConcurrency) in {
       System.gc()
 
       val fileTest = new File(s"${dir}storeAC005")
@@ -803,7 +803,7 @@ class FileRangeStoreConcurrencyTest
   }
 
   "FileRangeStore async putRangeAt async in future test" must {
-    "look Ok after concurrent rangeAt inserting" taggedAs FileRangeStoreAsyncPutRangeAtAsyncFuture in {
+    "look Ok after concurrent rangeAt inserting" taggedAs (FileRangeStoreAsyncPutRangeAtAsyncFuture, FileRangeStoreConcurrency) in {
       System.gc()
 
       val fileTest = new File(s"${dir}storeAC004")

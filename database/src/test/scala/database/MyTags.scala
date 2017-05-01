@@ -8,9 +8,13 @@ object MyTags {
 
   object FileRangeStoreConcurrency extends Tag("FileRangeStoreConcurrency")
 
-  object FileRangeStoreMMAPConcurrency extends Tag("FileRangeStoreMMAPConcurrency")
+  object FileRangeStoreAsync extends Tag("FileRangeStoreAsync")
+
+  object FileRangeStoreMMAP extends Tag("FileRangeStoreMMAP")
 
   object FileRangeStoreAsyncPutRange extends Tag("FileRangeStoreAsyncPutRange")
+
+  object FileRangeStorePutRangeMMAP extends Tag("FileRangeStorePutRangeMMAP")
 
   object FileRangeStoreAsyncPutRangeAt extends Tag("FileRangeStoreAsyncPutRangeAt")
 
@@ -19,6 +23,8 @@ object MyTags {
   object FileRangeStoreMMAPConcurrencyAsyncFuture extends Tag("FileRangeStoreMMAPConcurrencyAsyncFuture")
 
   object FileRangeStoreAsyncPutRangeAsyncFuture extends Tag("FileRangeStoreAsyncPutRangeAsyncFuture")
+
+  object FileRangeStorePutRangeMMAPAsyncFuture extends Tag("FileRangeStorePutRangeMMAPAsyncFuture")
 
   object FileRangeStoreAsyncPutRangeAtAsyncFuture extends Tag("FileRangeStoreAsyncPutRangeAtAsyncFuture")
 
