@@ -4,6 +4,7 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import BufferUtil._
 
+// not thread safe! simple implementation
 class MemoryRangeStore(totalSlots: Int, impl: MemoryBuffer) extends RangeApi {
   private var currSlot = 0
   private var currPos: Long = 0L

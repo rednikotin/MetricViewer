@@ -21,7 +21,7 @@ class FileRangeStoreConcurrencyTest
 
   //val sz = 4096
   //val sz = 1024 * 1024
-  val sz = 256
+  val sz = 4096
   val dir = "data/"
   //val dir = "d:/"
   val smallI = 5000
@@ -32,7 +32,7 @@ class FileRangeStoreConcurrencyTest
   import system.dispatcher
   val independent = ActorSystem("SomethingElse")
 
-  def after200ms(x: ⇒ Future[Unit]) = akka.pattern.after[Unit](200 millis, system.scheduler)(x)(system.dispatcher)
+  def after200ms(x: ⇒ Future[Unit]): Future[Unit] = akka.pattern.after[Unit](200 millis, system.scheduler)(x)(system.dispatcher)
 
   def floop[T](interval: ⇒ FiniteDuration, maxDuration: Duration, condition: ⇒ Boolean)(trunc: ⇒ T): Future[Option[T]] = {
     import independent.dispatcher
@@ -879,6 +879,31 @@ class FileRangeStoreConcurrencyTest
       assert(resr.exists(x ⇒ x._1 != x._2) === false)
 
       val distinct = resr.map(_._2).distinct.size
+      assert(distinct === cnt)
+
+      // rangeReads
+      fileStore.resetBufferPoolStat()
+      val readRangeSize = 1024
+      t0 = System.nanoTime()
+      val resr2: Seq[(Seq[(Int, Int)], Long)] = Future.sequence(for (i ← 0 until (cnt.toDouble / readRangeSize).ceil.toInt) yield {
+        val from = i * readRangeSize
+        val to = (from + readRangeSize).min(cnt - 1)
+        val t0 = System.nanoTime()
+        fileStore.getRange(from, to).map { bb ⇒
+          val t1 = System.nanoTime()
+          val bbi = bb.asIntBuffer()
+          val data = (0 until bb.limit() / sz).map { j ⇒
+            (i * readRangeSize + j, bbi.get(j * sz / 4))
+          }
+          (data, t1 - t0)
+        }
+      }).await(10 minutes)
+      val t2 = System.nanoTime()
+      pctReport(resr2.map(_._2), "putRangeAtFAsync-rangeRead")
+      println(s"read ${cnt.toDouble / readRangeSize} of ${sz * readRangeSize} in ${(t2 - t0).toDouble / 1e9} seconds")
+
+      assert(resr2.flatMap(_._1).exists(x ⇒ x._1 != x._2) === false)
+      val distinct2 = resr2.flatMap(_._1.map(_._2)).distinct.size
       assert(distinct === cnt)
 
     }

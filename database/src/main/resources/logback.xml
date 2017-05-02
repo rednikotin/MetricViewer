@@ -1,5 +1,8 @@
 <configuration scan="true">
 
+    <property name="logsDirectory" value="logs" />
+    <property name="logsLevel" value="debug" />
+
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <!-- encoders are assigned the type
              ch.qos.logback.classic.encoder.PatternLayoutEncoder by default -->
@@ -16,6 +19,10 @@
             <pattern>%d{YYYY/MM/dd HH:mm:ss.SSS} [%-5level] [%logger{15}] - %msg%n</pattern>
         </encoder>
     </appender>
+
+    <logger name="database.BufferPool" level="${logsLevel:-off}">
+        <appender-ref ref="STDOUT" />
+    </logger>
 
     <root level="off">
     </root>
