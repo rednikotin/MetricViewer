@@ -415,7 +415,7 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     println("*" * 30)
     println(s"currSlot=${currSlot.get}, currPos=${currPos.get}, SLOTS_LIMIT=$SLOTS_LIMIT, totalSlots=$totalSlots, readWatermark=$readWatermark")
     println(s"slots=${(0 until currSlot.get).map(slots.get).map(_ - SLOTS_LIMIT).mkString(", ")}")
-    val sz = limit.min(slots.get(currSlot.get - 1) - SLOTS_LIMIT)
+    val sz = if (currSlot.get == 0) 0 else limit.min(slots.get(currSlot.get - 1) - SLOTS_LIMIT)
     val memory = bufferPool.allocate(sz)
     channel.getX(memory, SLOTS_LIMIT)
     println(s"memory=${memory.mkString(", ")}")
@@ -423,9 +423,9 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     var sz1 = 0
     while (sz1 < limit && i < currSlot.get) {
       val bb = get(i).await()
+      println(s"$i -> ${bb.mkString(", ")}")
       i += 1
       sz1 += bb.limit()
-      println(s"i -> ${bb.mkString(", ")}")
     }
     println("*" * 30)
   }

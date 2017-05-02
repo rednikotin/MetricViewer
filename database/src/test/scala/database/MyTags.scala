@@ -28,4 +28,6 @@ object MyTags {
 
   object FileRangeStoreAsyncPutRangeAtAsyncFuture extends Tag("FileRangeStoreAsyncPutRangeAtAsyncFuture")
 
+  object FileRangeStoreWithSortingBufferTest extends Tag("FileRangeStoreWithSortingBufferTest")
+
 }

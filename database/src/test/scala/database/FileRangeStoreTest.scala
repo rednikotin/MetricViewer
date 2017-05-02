@@ -2,8 +2,6 @@ package database
 
 import java.io.{File, RandomAccessFile}
 import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
-
 import org.scalatest.{BeforeAndAfterAll, Matchers, Tag, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._

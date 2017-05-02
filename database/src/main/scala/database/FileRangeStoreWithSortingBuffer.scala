@@ -32,6 +32,10 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileR
         it reads remaining data into memory and reinsert it into SB (we can ignore performance here,
         inserting via SB is not performance oriented, but rather late data handling)
      7. all SB content is beyond readWatermark
+     8. possible data loss if JVM crashed before afterGap written back.
+
+     todo: replace with allocation + compactification ?
+     todo: persist afterGap in mmap before proceed + add flag and logic to handle
    */
 
   private val sorting_buffer_slots_map_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT_MAP, SORTING_BUFFER_SLOTS_SIZE)
@@ -54,7 +58,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileR
     }
   }
   private def flushSortingBuffer(isAll: Boolean) = {
-    def putAtAnyway(buffer: ByteBuffer, slot: Int, sbslot: Int) = {
+    def putAtForce(buffer: ByteBuffer, slot: Int, sbslot: Int) = {
       var retries = 0
       var inserted = false
       // we ignore possible scenario when putAtSync failed with WriteBeyondMaxPosException for now
@@ -78,11 +82,14 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileR
     for ((slot, sbslot) ← sbMap) {
       val pos = if (sbslot == 0) 0 else sorting_buffer_slots.get(sbslot - 1)
       val len = sorting_buffer_slots.get(sbslot) - pos
-      val buffer = bufferPool.allocate(len)
+
+      val array = new Array[Byte](len)
       sorting_buffer_data_mmap.position(pos)
-      buffer.put(sorting_buffer_data_mmap)
+      sorting_buffer_data_mmap.get(array)
+      val buffer = ByteBuffer.wrap(array)
+
       if (isAll || slot == currSlot.get) {
-        putAtAnyway(buffer, slot, sbslot)
+        putAtForce(buffer, slot, sbslot)
       } else {
         afterGap += ((buffer, slot))
       }
@@ -93,6 +100,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileR
     for ((buffer, slot) ← afterGap) {
       putSortingBuffer(buffer, slot)
     }
+    //println(s"flush=$isAll, currSlotSortingBuffer=${currSlotSortingBuffer.get}, sbMap.headOption=${sbMap.headOption}")
   }
   private def putSortingBuffer(buffer: ByteBuffer, slot: Int): Unit = {
     val len = buffer.remaining()
@@ -132,5 +140,19 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileR
       putSortingBuffer(bb, idx)
       Future.successful()
     }
+  }
+
+  override def shrink(newSize: Int): Unit = writeLock.synchronized {
+    currSlotSortingBuffer.set(0)
+    currPosSortingBuffer.set(0)
+    sbMap.clear()
+    super.shrink(newSize)
+  }
+
+  override def print(limit: Int = 100) {
+    super.print(limit)
+    println(s"currPosSortingBuffer=${currPosSortingBuffer.get}, currPosSortingBuffer=${currPosSortingBuffer.get}")
+    println(s"sbMap=${sbMap.toList.map(x ⇒ s"${x._1}->${x._2}").mkString(",")}")
+    println("*" * 30)
   }
 }
