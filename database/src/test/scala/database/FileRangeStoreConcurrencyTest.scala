@@ -86,7 +86,7 @@ class FileRangeStoreConcurrencyTest
         s"inserted = $inserted, " +
         s"completed = $completed, " +
         s"failed=$failed, " +
-        s"queue=${fileStore.queueSize}, " +
+        s"queue=${fileStore.getQueueSize}, " +
         s"left = ${cnt - completed}, " +
         s"maxQueue=${fileStore.maxQueueSize}, " +
         s"rwGap=${fileStore.rwGap}," +
@@ -131,11 +131,11 @@ class FileRangeStoreConcurrencyTest
       val fileStore = new FileRangeStore(fileTest, slots)
       val arr = new Array[Byte](sz)
       for (i ← arr.indices) arr(i) = i.toByte
-      val cnt: Int = (pct * (FileRangeStore.MAX_POS - fileStore.SLOTS_LIMIT) / sz).toInt
+      val cnt: Int = pct * (FileRangeStore.MAX_POS - fileStore.SLOTS_LIMIT) / sz
       var slotCheck = 0
       val iSlotCheck = cnt / 3
 
-      def put(p: Promise[Any], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Any], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val bb = ByteBuffer.wrap(arr.clone())
           bb.asIntBuffer().put(0, i)
@@ -202,7 +202,7 @@ class FileRangeStoreConcurrencyTest
       val cnt: Int = (pct * (FileRangeStore.MAX_POS - fileStore.SLOTS_LIMIT) / sz).toInt
       var slotCheck = 0
       val iSlotCheck = cnt / 3
-      def put(p: Promise[Unit], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Unit], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val bb = ByteBuffer.wrap(arr.clone())
           bb.asIntBuffer().put(0, i)
@@ -269,7 +269,7 @@ class FileRangeStoreConcurrencyTest
       //val rangeSize = 16
       val rangesCnt = cnt / rangeSize
 
-      def put(p: Promise[Any], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Any], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val cap = sz * rangeSize.min(cnt - rangeSize * i)
           if (cap > 0) {
@@ -351,7 +351,7 @@ class FileRangeStoreConcurrencyTest
       //val rangeSize = 16
       val rangesCnt = cnt / rangeSize
 
-      def put(p: Promise[Unit], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Unit], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val cap = sz * rangeSize.min(cnt - rangeSize * i)
           if (cap > 0) {
@@ -429,7 +429,7 @@ class FileRangeStoreConcurrencyTest
       val rangeSize = 1 << 14
       val rangesCnt = cnt / rangeSize
 
-      def put(p: Promise[Any], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Any], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val cap = sz * rangeSize.min(cnt - rangeSize * i)
           if (cap > 0) {
@@ -514,7 +514,7 @@ class FileRangeStoreConcurrencyTest
       val cnt: Int = (pct * (FileRangeStore.MAX_POS - fileStore.SLOTS_LIMIT) / sz).toInt
       var slotCheck = 0
       val iSlotCheck = cnt / 3
-      def put(p: Promise[Any], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Any], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val bb = ByteBuffer.wrap(arr.clone())
           bb.asIntBuffer().put(0, i)
@@ -582,7 +582,7 @@ class FileRangeStoreConcurrencyTest
       val cnt: Int = (pct * (FileRangeStore.MAX_POS - fileStore.SLOTS_LIMIT) / sz).toInt
       var slotCheck = 0
       val iSlotCheck = cnt / 3
-      def put(p: Promise[Any], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Any], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val bb = ByteBuffer.wrap(arr.clone())
           bb.asIntBuffer().put(0, i)
@@ -653,7 +653,7 @@ class FileRangeStoreConcurrencyTest
       //val rangeSize = 16
       val rangesCnt = cnt / rangeSize
 
-      def put(p: Promise[Any], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Any], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val cap = sz * rangeSize.min(cnt - rangeSize * i)
           if (cap > 0) {
@@ -736,7 +736,7 @@ class FileRangeStoreConcurrencyTest
       //val rangeSize = 16
       val rangesCnt = cnt / rangeSize
 
-      def put(p: Promise[Any], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Any], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val cap = sz * rangeSize.min(cnt - rangeSize * i)
           if (cap > 0) {
@@ -816,7 +816,7 @@ class FileRangeStoreConcurrencyTest
       val rangeSize = 1 << 14
       val rangesCnt = cnt / rangeSize
 
-      def put(p: Promise[Any], i: Int): Unit = if (fileStore.queueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
+      def put(p: Promise[Any], i: Int): Unit = if (fileStore.getQueueSize <= FileRangeStore.MAX_WRITE_QUEUE * 0.9) {
         try {
           val cap = sz * rangeSize.min(cnt - rangeSize * i)
           if (cap > 0) {

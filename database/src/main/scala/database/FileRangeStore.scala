@@ -4,16 +4,18 @@ import java.io.{File, RandomAccessFile}
 import java.nio.{ByteBuffer, MappedByteBuffer}
 import java.nio.channels.{AsynchronousFileChannel, CompletionHandler, FileChannel}
 import java.nio.file.StandardOpenOption
-
 import BufferUtil._
 import com.typesafe.scalalogging.LazyLogging
-
+import sun.nio.ch.DirectBuffer
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.Try
+import UnsafeUtil._
 
 // todo: cleanup after failed write + other error handling
 // done: bulk load api - putRange/putRangeAt API
-// todo: sorting buffer
+// done: sorting buffer
+// todo: review concurrency issue
+// todo: create version with unsafe instead?
 
 object FileRangeStore {
   val STEP: Int = 4096
@@ -22,28 +24,23 @@ object FileRangeStore {
   val MAX_WRITE_QUEUE: Int = 100
 
   class MMInt(mmap: MappedByteBuffer, addr: Int, initValue: Option[Int]) {
-    private var cache: Option[Int] = None
+    @volatile private var cache: Option[Int] = None
     def get: Int = cache.getOrElse(this.synchronized {
       val value = mmap.getInt(addr)
       cache = Some(value)
       value
     })
-    def set(value: Int): Unit = {
-      this.synchronized(mmap.putInt(addr, value))
+    def set(value: Int): Unit = this.synchronized {
+      mmap.putInt(addr, value)
       cache = Some(value)
     }
-    def +=(addition: Int): Int = this.synchronized {
-      val value = get + addition
+    def +=(delta: Int): Int = this.synchronized {
+      val value = get + delta
       mmap.putInt(addr, value)
       cache = Some(value)
       value
     }
     initValue.foreach(set)
-  }
-
-  class MMIntArray(mmap: MappedByteBuffer) {
-    def set(idx: Int, value: Int): Unit = mmap.putInt(idx * 4, value)
-    def get(idx: Int): Int = mmap.getInt(idx * 4)
   }
 
   case class AsyncResult(result: Int, buffer: ByteBuffer)
@@ -90,26 +87,48 @@ object FileRangeStore {
   }
 
   implicit class RichMappedByteBuffer(mmap: MappedByteBuffer) {
-    def putX(shift: Int)(buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Int = {
+    def putX0(buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Int = {
       val res = Try {
         mmap.synchronized {
-          mmap.position(pos - shift)
+          mmap.position(pos)
           mmap.put(buffer)
-          mmap.position() - pos + shift
+          mmap.position() - pos
         }
       }
       callback(res.isSuccess)
       res.get
     }
+    private val addr = getBufferAddress(mmap)
+    def putX(buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Int = {
+      val len = buffer.limit()
+      if (len > 0) {
+        val res = Try {
+          buffer match {
+            case bb: DirectBuffer ⇒
+              val saddr = getBufferAddress(bb)
+              getUnsafe.copyMemory(saddr, addr + pos, len)
+            case bb: ByteBuffer ⇒
+              val array = bb.array()
+              getUnsafe.copyMemory(array, BYTE_ARRAY_OFFSET, null, addr + pos, len)
+          }
+          len
+        }
+        callback(res.isSuccess)
+        res.get
+      } else {
+        callback(true)
+        0
+      }
+    }
   }
 
-  class FileRangeStoreException(val s: String) extends RuntimeException(s: String)
-  class WriteQueueOverflowException(s: String) extends FileRangeStoreException(s: String)
-  class WriteBeyondMaxPosException(s: String) extends FileRangeStoreException(s: String)
-  class NoAvailableSlotsException(s: String) extends FileRangeStoreException(s: String)
-  class SlotAlreadyUsedException(s: String) extends FileRangeStoreException(s: String)
-  class NegativeSlotException(s: String) extends FileRangeStoreException(s: String)
-  class ReadAboveWatermarkException(s: String) extends FileRangeStoreException(s: String)
+  class FileRangeStoreException(val msg: String) extends RuntimeException(msg: String)
+  class WriteQueueOverflowException(msg: String) extends FileRangeStoreException(msg: String)
+  class WriteBeyondMaxPosException(msg: String) extends FileRangeStoreException(msg: String)
+  class NoAvailableSlotsException(msg: String) extends FileRangeStoreException(msg: String)
+  class SlotAlreadyUsedException(msg: String) extends FileRangeStoreException(msg: String)
+  class NegativeSlotException(msg: String) extends FileRangeStoreException(msg: String)
+  class ReadAboveWatermarkException(msg: String) extends FileRangeStoreException(msg: String)
   class MmapWriteNotEnabled extends FileRangeStoreException("MMAP writes are not explicitly enabled")
 }
 
@@ -149,45 +168,50 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
   def commitAll(): Unit = async.force(false)
 
   private var mmapWrite = false
-  def enableMmapWrite(): Unit = {
-    mmapWrite = true
-    val size = MAX_POS - SLOTS_LIMIT + 1
-    data_mmap = channel.map(FileChannel.MapMode.READ_WRITE, SLOTS_LIMIT, size)
+  def enableMmapWrite(): Unit = this.synchronized {
+    if (!mmapWrite) {
+      mmapWrite = true
+      val size = MAX_POS - SLOTS_LIMIT + 1
+      data_mmap = channel.map(FileChannel.MapMode.READ_WRITE, SLOTS_LIMIT, size)
+    }
   }
-  private val mmapPut = data_mmap.putX(SLOTS_LIMIT)(_, _, _)
+  private def mmapPut(byteBuffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Int =
+    data_mmap.putX(byteBuffer, pos - SLOTS_LIMIT, callback)
 
   protected val currSlot = new MMInt(reserved_mmap, 0, if (fileCreated) Some(0) else None)
   private val currPos = new MMInt(reserved_mmap, 4, if (fileCreated) Some(SLOTS_LIMIT) else None)
-  private val slots = new MMIntArray(slots_mmap)
+  private val slots = slots_mmap.asIntBuffer()
   @volatile private var readWatermark = if (fileCreated) -1 else currSlot.get - 1
 
   protected object writeLock
-  private object readWatermarkLock
+  private object queueLock
 
   def size: Int = currSlot.get
 
   // for test usage
-  var maxQueueSize = 0
+  @volatile var maxQueueSize = 0
+  @volatile private var queueSize = 0
   private val writeQueue = scala.collection.mutable.SortedSet.empty[Int]
-  private def encwq(slot: Int): Unit = readWatermarkLock.synchronized {
-    if (writeQueue.size >= MAX_WRITE_QUEUE) {
+  private def encwq(slot: Int): Unit = queueLock.synchronized {
+    if (queueSize >= MAX_WRITE_QUEUE) {
       throw new WriteQueueOverflowException(s"writeQueue.size=${writeQueue.size} >= MAX_WRITE_QUEUE=$MAX_WRITE_QUEUE")
     }
     writeQueue.add(slot)
-    if (maxQueueSize < writeQueue.size) {
-      maxQueueSize = writeQueue.size
-      //println(s"growing maxQueueSize=$maxQueueSize")
+    queueSize += 1
+    if (maxQueueSize < queueSize) {
+      maxQueueSize = queueSize
     }
   }
 
-  private def deqwq(slot: Int): Unit = readWatermarkLock.synchronized {
+  private def deqwq(slot: Int): Unit = queueLock.synchronized {
     writeQueue.remove(slot)
+    queueSize -= 1
     val minSlot = writeQueue.headOption.getOrElse((slot + 1).max(currSlot.get))
     readWatermark = minSlot - 1
   }
-  def queueSize: Int = writeQueue.size
+  def getQueueSize: Int = queueSize
 
-  // no sync method, we have to read readWatermark as it may be updated during the call
+  // not a sync method (but still accessing volatiles), we have to read readWatermark as it may be updated during the call
   def rwGap: Int = {
     val rwm = readWatermark
     val curr = currSlot.get
@@ -208,7 +232,7 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     }
     encwq(slot)
     currPos.set(nextPos.toInt)
-    slots.set(slot, nextPos.toInt)
+    slots.put(slot, nextPos.toInt)
     currSlot += 1
     val res = putf(bb, pos, _ ⇒ deqwq(slot))
     PutResult(slot, res)
@@ -225,7 +249,7 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
       throw new SlotAlreadyUsedException(s"idx=$idx < currSlot.get=${currSlot.get}")
     }
     while (currSlot.get < idx) {
-      slots.set(currSlot.get, currPos.get)
+      slots.put(currSlot.get, currPos.get)
       currSlot += 1
     }
     put(bb, putf)
@@ -246,7 +270,7 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     }
     encwq(maxSlot)
     for (i ← offsets.indices) {
-      slots.set(currSlot.get, currPos.get + offsets(i))
+      slots.put(currSlot.get, currPos.get + offsets(i))
       currSlot += 1
     }
     currPos += len
@@ -273,12 +297,12 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
       throw new SlotAlreadyUsedException(s"idx=$idx < currSlot.get=${currSlot.get}")
     }
     while (currSlot.get < idx) {
-      slots.set(currSlot.get, currPos.get)
+      slots.put(currSlot.get, currPos.get)
       currSlot += 1
     }
     encwq(maxSlot)
     for (i ← offsets.indices) {
-      slots.set(currSlot.get, currPos.get + offsets(i))
+      slots.put(currSlot.get, currPos.get + offsets(i))
       currSlot += 1
     }
     currPos += len
@@ -387,16 +411,16 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
       throw new NegativeSlotException(s"newSize=$newSize < 0")
     }
     if (newSize < currSlot.get) {
-      if (writeQueue.nonEmpty) {
+      if (queueSize > 0) {
         Thread.sleep(1000)
-        val len = writeQueue.size
+        val len = queueSize
         if (len > 0) {
           throw new IllegalStateException(s"Unable to shrink file with pending IO on store, writeQueue.size=$len")
         }
       }
       val maxSlot = currSlot.get
       currSlot.set(newSize)
-      for (i ← newSize until maxSlot) slots.set(i, 0)
+      for (i ← newSize until maxSlot) slots.put(i, 0)
       currPos.set(if (newSize > 0) slots.get(newSize - 1) else SLOTS_LIMIT)
       readWatermark = newSize - 1
     }

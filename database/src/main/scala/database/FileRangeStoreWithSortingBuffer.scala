@@ -49,14 +49,16 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileR
 
   private val currSlotSortingBuffer = new MMInt(reserved_mmap, 8, if (fileCreated) Some(0) else None)
   private val currPosSortingBuffer = new MMInt(reserved_mmap, 12, if (fileCreated) Some(0) else None)
-  private val sorting_buffer_slots = new MMIntArray(sorting_buffer_slots_mmap)
-  private val sorting_buffer_slots_map = new MMIntArray(sorting_buffer_slots_map_mmap)
+  private val sorting_buffer_slots = sorting_buffer_slots_mmap.asIntBuffer()
+  private val sorting_buffer_slots_map = sorting_buffer_slots_map_mmap.asIntBuffer()
   private val sbMap = collection.mutable.SortedMap.empty[Int, Int]
   if (!fileCreated) {
     for (i ← 0 until currSlotSortingBuffer.get) {
       sbMap += ((sorting_buffer_slots_map.get(i), i))
     }
   }
+
+  // implementation is far from optimal!
   private def flushSortingBuffer(isAll: Boolean) = {
     def putAtForce(buffer: ByteBuffer, slot: Int, sbslot: Int) = {
       var retries = 0
@@ -68,11 +70,11 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileR
           inserted = true
         } catch {
           case ex: SlotAlreadyUsedException ⇒
-            logger.info(s"got SlotAlreadyUsedException(${ex.s}) while flushing sorting buffer (slot=$slot, sbslot=$sbslot)")
+            logger.info(s"got SlotAlreadyUsedException(${ex.msg}) while flushing sorting buffer (slot=$slot, sbslot=$sbslot)")
           case ex: WriteQueueOverflowException ⇒
             retries += 1
             if (retries > 10) {
-              throw new WriteQueueOverflowException(s"Unable to flush buffer, getting exception > 10 times, ${ex.s}")
+              throw new WriteQueueOverflowException(s"Unable to flush buffer, getting exception > 10 times, ${ex.msg}")
             }
             Thread.sleep(200)
         }
@@ -102,6 +104,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileR
     }
     //println(s"flush=$isAll, currSlotSortingBuffer=${currSlotSortingBuffer.get}, sbMap.headOption=${sbMap.headOption}")
   }
+
   private def putSortingBuffer(buffer: ByteBuffer, slot: Int): Unit = {
     val len = buffer.remaining()
     val sbslot = currSlotSortingBuffer.get
@@ -112,14 +115,15 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileR
       putAtAsync(buffer, slot)
     } else {
       currPosSortingBuffer.set(nextPos.toInt)
-      sorting_buffer_slots.set(sbslot, nextPos.toInt)
-      sorting_buffer_slots_map.set(sbslot, slot)
+      sorting_buffer_slots.put(sbslot, nextPos.toInt)
+      sorting_buffer_slots_map.put(sbslot, slot)
       sbMap += ((slot, sbslot))
       currSlotSortingBuffer += 1
       sorting_buffer_data_mmap.position(pos)
       sorting_buffer_data_mmap.put(buffer)
     }
   }
+
   def putAtViaSortingBuffer(bb: ByteBuffer, idx: Int): Future[Any] = writeLock.synchronized {
     if (idx >= totalSlots) {
       throw new NoAvailableSlotsException(s"idx=$idx >= totalSlots=$totalSlots")
