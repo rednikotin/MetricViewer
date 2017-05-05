@@ -68,7 +68,10 @@ class FileRangeStoreWithSortingBufferTest
 
       shuffleBuffers.foreach {
         case (bb, slot) ⇒
-          assert(fileStore.get(slot).await().toSeq === bb.toSeq)
+          val bb0 = fileStore.get(slot).await()
+          assert(bb0.toSeq === bb.toSeq)
+          fileStore.releaseBuffer(bb0)
+
       }
     }
 
@@ -96,7 +99,9 @@ class FileRangeStoreWithSortingBufferTest
 
       shuffleBuffers.filter(_._2 < filterSlot).foreach {
         case (bb, slot) ⇒
-          assert((slot, fileStore.get(slot).await().toSeq) === (slot, bb.toSeq))
+          val bb0 = fileStore.get(slot).await()
+          assert((slot, bb0.toSeq) === (slot, bb.toSeq))
+          fileStore.releaseBuffer(bb0)
       }
 
       shuffleBuffers.filter(_._2 >= filterSlot).foreach {
@@ -110,7 +115,9 @@ class FileRangeStoreWithSortingBufferTest
       rewindBBs()
       shuffleBuffers.foreach {
         case (bb, slot) ⇒
-          assert(fileStore.get(slot).await().toSeq === bb.toSeq)
+          val bb0 = fileStore.get(slot).await()
+          assert((slot, bb0.toSeq) === (slot, bb.toSeq))
+          fileStore.releaseBuffer(bb0)
       }
     }
 
@@ -142,7 +149,9 @@ class FileRangeStoreWithSortingBufferTest
       rewindBBs()
       shuffleBuffers.foreach {
         case (bb, slot) ⇒
-          assert(fileStore.get(slot).await().toSeq === bb.toSeq)
+          val bb0 = fileStore.get(slot).await()
+          assert((slot, bb0.toSeq) === (slot, bb.toSeq))
+          fileStore.releaseBuffer(bb0)
       }
     }
 
@@ -166,7 +175,9 @@ class FileRangeStoreWithSortingBufferTest
 
       shuffleBuffers.foreach {
         case (bb, slot) ⇒
-          assert(fileStore.get(slot).await().toSeq === bb.toSeq)
+          val bb0 = fileStore.get(slot).await()
+          assert((slot, bb0.toSeq) === (slot, bb.toSeq))
+          fileStore.releaseBuffer(bb0)
       }
     }
 

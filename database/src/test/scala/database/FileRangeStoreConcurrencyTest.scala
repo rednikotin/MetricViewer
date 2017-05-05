@@ -2,14 +2,16 @@ package database
 
 import java.io.File
 import java.nio.ByteBuffer
+
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
 import BufferUtil._
+
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 import MyTags._
 
 class FileRangeStoreConcurrencyTest
@@ -174,7 +176,9 @@ class FileRangeStoreConcurrencyTest
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -240,7 +244,9 @@ class FileRangeStoreConcurrencyTest
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -321,7 +327,9 @@ class FileRangeStoreConcurrencyTest
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -402,7 +410,9 @@ class FileRangeStoreConcurrencyTest
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -482,7 +492,9 @@ class FileRangeStoreConcurrencyTest
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -554,7 +566,9 @@ class FileRangeStoreConcurrencyTest
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -624,7 +638,9 @@ class FileRangeStoreConcurrencyTest
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -706,7 +722,9 @@ class FileRangeStoreConcurrencyTest
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -789,7 +807,9 @@ class FileRangeStoreConcurrencyTest
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -861,15 +881,14 @@ class FileRangeStoreConcurrencyTest
       res.await(5 minutes)
       fileStore.commitAll()
 
-      assert(fileStore.size === cnt)
-      assert(fileStore.get(123).await().size === sz)
-
       t0 = System.nanoTime()
       val resr: Seq[(Int, Int, Long)] = Future.sequence(for (i ← scala.util.Random.shuffle((0 until cnt).toList)) yield {
         val t0 = System.nanoTime()
         fileStore.get(i).map { bb ⇒
           val t1 = System.nanoTime()
-          (i, bb.asIntBuffer().get(0), t1 - t0)
+          val res = (i, bb.asIntBuffer().get(0), t1 - t0)
+          fileStore.releaseBuffer(bb)
+          res
         }
       }).await(10 minutes)
       val t1 = System.nanoTime()
@@ -877,12 +896,14 @@ class FileRangeStoreConcurrencyTest
       println(s"read $cnt of $sz in ${(t1 - t0).toDouble / 1e9} seconds")
 
       assert(resr.exists(x ⇒ x._1 != x._2) === false)
+      assert(fileStore.size === cnt)
+      assert(fileStore.get(123).await().size === sz)
 
       val distinct = resr.map(_._2).distinct.size
       assert(distinct === cnt)
 
       // rangeReads
-      fileStore.resetBufferPoolStat()
+
       val readRangeSize = 1024
       t0 = System.nanoTime()
       val resr2: Seq[(Seq[(Int, Int)], Long)] = Future.sequence(for (i ← 0 until (cnt.toDouble / readRangeSize).ceil.toInt) yield {
@@ -895,6 +916,7 @@ class FileRangeStoreConcurrencyTest
           val data = (0 until bb.limit() / sz).map { j ⇒
             (i * readRangeSize + j, bbi.get(j * sz / 4))
           }
+          fileStore.releaseBuffer(bb)
           (data, t1 - t0)
         }
       }).await(10 minutes)
@@ -908,6 +930,159 @@ class FileRangeStoreConcurrencyTest
 
     }
 
+  }
+
+  def sleep(xz: Int): Int = if (xz > 0) {
+    if (xz < 1000) {
+      var x = 0
+      val t = xz * 80
+      while (x < t) x += 1
+      x
+    } else {
+      Thread.sleep(xz / 1000)
+      0
+    }
+  } else 0
+
+  def test0(cnt: Int, tm: Int, pool: BufferPool): Unit = {
+    Future.sequence(for (i ← 0 until cnt) yield Future {
+      Try {
+        val bb = pool.allocate(1)
+        sleep(tm)
+        pool.release(bb)
+      } match {
+        case Failure(ex) ⇒
+          println(s"POOL TEST EXCEPTION!!!")
+          ex.printStackTrace()
+        case Success(_) ⇒
+      }
+    }).await(5 minutes)
+  }
+
+  def test1(cnt: Int, tm: Int, p: BufferPool.PoolProvider): Unit = {
+    for (i ← 1 to 3) {
+      System.gc()
+      Thread.sleep(100)
+      val pool = BufferPool.createBufferPool(p)
+      val t0 = System.nanoTime()
+      test0(cnt, tm, pool)
+      val t1 = System.nanoTime()
+      pool.printStats()
+      println(s"test executed in ${(t1 - t0) / 1e9}, miss=${pool.getMiss}")
+    }
+  }
+
+  def test2(cnt: Int, tm: Int, p: BufferPool.PoolProvider): Unit = {
+    for (i ← 1 to 3) {
+      System.gc()
+      Thread.sleep(100)
+      val t0 = System.nanoTime()
+      Future.sequence(for (i ← 0 until cnt) yield Future {
+        Try {
+          val bb = ByteBuffer.allocate(4096)
+          sleep(tm)
+        } match {
+          case Failure(ex) ⇒
+            println(s"POOL TEST EXCEPTION!!!")
+            ex.printStackTrace()
+          case Success(_) ⇒
+        }
+      }).await(5 minutes)
+      val t1 = System.nanoTime()
+      println(s"test executed in ${(t1 - t0) / 1e9}")
+    }
+  }
+
+  def test3(cnt: Int, tm: Int, p: BufferPool.PoolProvider): Unit = {
+    for (i ← 1 to 3) {
+      System.gc()
+      Thread.sleep(100)
+      val t0 = System.nanoTime()
+      Future.sequence(for (i ← 0 until cnt) yield Future {
+        Try {
+          val bb = ByteBuffer.allocateDirect(4096)
+          sleep(tm)
+        } match {
+          case Failure(ex) ⇒
+            println(s"POOL TEST EXCEPTION!!!")
+            ex.printStackTrace()
+          case Success(_) ⇒
+        }
+      }).await(5 minutes)
+      val t1 = System.nanoTime()
+      println(s"test executed in ${(t1 - t0) / 1e9}")
+    }
+  }
+
+  "BufferPool concurrent test" must {
+    import BufferPool._
+    /*    "test1(30000, 1000, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(30000, 1000, BlockingPool)
+    }
+    "test1(30000, 1000, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(30000, 1000, CLQPool)
+    }
+    "test1(30000, 1000, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(30000, 1000, NBPool)
+    }*/
+
+    /*   // no pool
+    "test2(1000000, 10, ByteBuffer.allocate) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test2(1000000, 10, BlockingPool)
+    }
+    "test3(1000000, 10, ByteBuffer.allocateDirect) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test3(1000000, 10, CLQPool)
+    }*/
+
+    "test1(1000000, 100, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 100, BPool)
+    }
+    /*"test1(1000000, 100, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 100, CLQPool)
+    }*/
+    "test1(1000000, 100, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 100, NBPool)
+    }
+
+    "test1(1000000, 10, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 10, BPool)
+    }
+    /*"test1(1000000, 10, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 10, CLQPool)
+    }*/
+    "test1(1000000, 10, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 10, NBPool)
+    }
+
+    "test1(1000000, 1, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 1, BPool)
+    }
+    /*"test1(1000000, 1, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 1, CLQPool)
+    }*/
+    "test1(1000000, 1, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 1, NBPool)
+    }
+
+    /*    "test1(1000000, 0, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 0, BlockingPool)
+    }
+    "test1(1000000, 0, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 0, CLQPool)
+    }
+    "test1(1000000, 0, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(1000000, 0, NBPool)
+    }
+
+    "test1(3000, 10000, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(3000, 10000, BlockingPool)
+    }
+    "test1(3000, 10000, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(3000, 10000, CLQPool)
+    }
+    "test1(3000, 10000, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
+      test1(3000, 10000, NBPool)
+    }*/
   }
 
 }

@@ -8,16 +8,27 @@ import scala.concurrent.Future
 
 object FileRangeStoreWithSortingBuffer {
   import FileRangeStore._
-  val SORTING_BUFFER_DATA_SIZE: Int = 32768
-  val SORTING_BUFFER_SLOTS_SIZE: Int = 4096
-  val SORTING_BUFFER_TOTAL_SLOTS: Int = SORTING_BUFFER_SLOTS_SIZE / 4
-  val SORTING_BUFFER_FIRST_SLOT: Int = RESERVED_LIMIT - SORTING_BUFFER_DATA_SIZE - SORTING_BUFFER_SLOTS_SIZE
-  val SORTING_BUFFER_FIRST_SLOT_MAP: Int = SORTING_BUFFER_FIRST_SLOT - SORTING_BUFFER_SLOTS_SIZE
+  final val SORTING_BUFFER_DATA_SIZE: Int = 32768
+  final val SORTING_BUFFER_SLOTS_SIZE: Int = 4096
+  final val SORTING_BUFFER_TOTAL_SLOTS: Int = SORTING_BUFFER_SLOTS_SIZE / 4
+  final val SORTING_BUFFER_FIRST_SLOT: Int = RESERVED_LIMIT - SORTING_BUFFER_DATA_SIZE - SORTING_BUFFER_SLOTS_SIZE
+  final val SORTING_BUFFER_FIRST_SLOT_MAP: Int = SORTING_BUFFER_FIRST_SLOT - SORTING_BUFFER_SLOTS_SIZE
 }
 
 class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int) extends FileRangeStore(file, totalSlots) {
   import FileRangeStore._
   import FileRangeStoreWithSortingBuffer._
+
+  /*
+       Small file structure:
+       0 - 64K => reserved for control needs:
+       0,1,2,3 => cur positions/slots
+       24k - 28k => sb-slot to slot mapping
+       28k - 32k => sb-slot positions
+       32k - 64k => sb-data
+       64k - 64k + 4 * slots => offsets
+       64k + 4 * slots => data
+  */
 
   /*
      sorting buffer

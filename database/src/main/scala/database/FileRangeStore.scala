@@ -18,41 +18,39 @@ import UnsafeUtil._
 // todo: create version with unsafe instead?
 
 object FileRangeStore {
-  val STEP: Int = 4096
-  val RESERVED_LIMIT: Int = 65536
-  val MAX_POS: Int = Int.MaxValue
-  val MAX_WRITE_QUEUE: Int = 100
+  final val STEP: Int = 4096
+  final val RESERVED_LIMIT: Int = 65536
+  final val MAX_POS: Int = Int.MaxValue
+  final val MAX_WRITE_QUEUE: Int = 100
 
   class MMInt(mmap: MappedByteBuffer, addr: Int, initValue: Option[Int]) {
-    @volatile private var cache: Option[Int] = None
-    def get: Int = cache.getOrElse(this.synchronized {
-      val value = mmap.getInt(addr)
-      cache = Some(value)
-      value
-    })
+    @volatile private var cache: Int = _
+    def get: Int = cache
     def set(value: Int): Unit = this.synchronized {
+      cache = value
       mmap.putInt(addr, value)
-      cache = Some(value)
     }
     def +=(delta: Int): Int = this.synchronized {
-      val value = get + delta
-      mmap.putInt(addr, value)
-      cache = Some(value)
-      value
+      cache += delta
+      mmap.putInt(addr, cache)
+      cache
     }
-    initValue.foreach(set)
+    initValue match {
+      case Some(value) ⇒ set(value)
+      case None        ⇒ cache = mmap.getInt(addr)
+    }
   }
 
-  case class AsyncResult(result: Int, buffer: ByteBuffer)
+  case class GetResult(result: Int, buffer: ByteBuffer)
   case class PutResult[T](slot: Int, result: T)
 
   implicit class RichAsynchronousFileChannel(async: AsynchronousFileChannel) {
-    def putX(buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Future[AsyncResult] = {
-      val p = Promise[AsyncResult]()
+    def putX(buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Future[GetResult] = {
+      val p = Promise[GetResult]()
       async.write(buffer, pos, buffer, new CompletionHandler[Integer, ByteBuffer]() {
         override def completed(result: Integer, attachment: ByteBuffer): Unit = {
           callback(true)
-          p.success(AsyncResult(result.toInt, attachment))
+          p.success(GetResult(result.toInt, attachment))
         }
         override def failed(exc: Throwable, attachment: ByteBuffer): Unit = {
           callback(false)
@@ -99,6 +97,7 @@ object FileRangeStore {
       res.get
     }
     private val addr = getBufferAddress(mmap)
+    private val unsafe = getUnsafe
     def putX(buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Int = {
       val len = buffer.limit()
       if (len > 0) {
@@ -106,10 +105,10 @@ object FileRangeStore {
           buffer match {
             case bb: DirectBuffer ⇒
               val saddr = getBufferAddress(bb)
-              getUnsafe.copyMemory(saddr, addr + pos, len)
+              unsafe.copyMemory(saddr, addr + pos, len)
             case bb: ByteBuffer ⇒
               val array = bb.array()
-              getUnsafe.copyMemory(array, BYTE_ARRAY_OFFSET, null, addr + pos, len)
+              unsafe.copyMemory(array, BYTE_ARRAY_OFFSET, null, addr + pos, len)
           }
           len
         }
@@ -141,8 +140,8 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
        64k + 4 * slots => data
   */
 
-  val SLOTS_SIZE: Int = if (totalSlots % 1024 == 0) totalSlots * 4 else (totalSlots * 4 / STEP + 1) * STEP
-  val SLOTS_LIMIT: Int = RESERVED_LIMIT + SLOTS_SIZE
+  final val SLOTS_SIZE: Int = if (totalSlots % 1024 == 0) totalSlots * 4 else (totalSlots * 4 / STEP + 1) * STEP
+  final val SLOTS_LIMIT: Int = RESERVED_LIMIT + SLOTS_SIZE
 
   protected val fileCreated: Boolean = !file.exists()
   val raf: RandomAccessFile = new RandomAccessFile(file, "rw")
@@ -154,8 +153,8 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     StandardOpenOption.CREATE
   )
 
-  protected val bufferPool = new BufferPool
-  def resetBufferPoolStat(): Unit = bufferPool.resetStat()
+  protected val bufferPool: BufferPool = BufferPool.createDefault()
+  def releaseBuffer(bb: ByteBuffer): Unit = bufferPool.release(bb)
   protected val reserved_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, RESERVED_LIMIT)
   private val slots_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, RESERVED_LIMIT, SLOTS_SIZE)
   private var data_mmap: MappedByteBuffer = _
@@ -310,28 +309,28 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     PutResult(firstSlot, res)
   }
 
-  def putAsync(bb: ByteBuffer): PutResult[Future[AsyncResult]] = put(bb, async.putX)
+  def putAsync(bb: ByteBuffer): PutResult[Future[GetResult]] = put(bb, async.putX)
   def putSync(bb: ByteBuffer): PutResult[Int] = put(bb, channel.putX)
   def putSyncMmap(bb: ByteBuffer): PutResult[Int] = if (mmapWrite) put(bb, mmapPut) else throw new MmapWriteNotEnabled
   def put(bb: ByteBuffer): PutResult[Int] = putSync(bb)
 
-  def putAtAsync(bb: ByteBuffer, idx: Int): PutResult[Future[AsyncResult]] = putAt(bb, idx, async.putX)
+  def putAtAsync(bb: ByteBuffer, idx: Int): PutResult[Future[GetResult]] = putAt(bb, idx, async.putX)
   def putAtSync(bb: ByteBuffer, idx: Int): PutResult[Int] = putAt(bb, idx, channel.putX)
   def putAtSyncMmap(bb: ByteBuffer, idx: Int): PutResult[Int] = if (mmapWrite) putAt(bb, idx, mmapPut) else throw new MmapWriteNotEnabled
   def putAt(bb: ByteBuffer, idx: Int): PutResult[Int] = putAtSync(bb, idx)
 
-  def putRangeAsync(bb: ByteBuffer, offsets: Array[Int]): PutResult[Future[AsyncResult]] = putRange(bb, offsets, async.putX)
+  def putRangeAsync(bb: ByteBuffer, offsets: Array[Int]): PutResult[Future[GetResult]] = putRange(bb, offsets, async.putX)
   def putRangeSync(bb: ByteBuffer, offsets: Array[Int]): PutResult[Int] = putRange(bb, offsets, channel.putX)
   def putRangeSyncMmap(bb: ByteBuffer, offsets: Array[Int]): PutResult[Int] = if (mmapWrite) putRange(bb, offsets, mmapPut) else throw new MmapWriteNotEnabled
   def putRange(bb: ByteBuffer, offsets: Array[Int]): PutResult[Int] = putRangeSync(bb, offsets)
 
-  def putRangeAtAsync(bb: ByteBuffer, offsets: Array[Int], idx: Int): PutResult[Future[AsyncResult]] = putRangeAt(bb, offsets, idx, async.putX)
+  def putRangeAtAsync(bb: ByteBuffer, offsets: Array[Int], idx: Int): PutResult[Future[GetResult]] = putRangeAt(bb, offsets, idx, async.putX)
   def putRangeAtSync(bb: ByteBuffer, offsets: Array[Int], idx: Int): PutResult[Int] = putRangeAt(bb, offsets, idx, channel.putX)
   def putRangeAtSyncMmap(bb: ByteBuffer, offsets: Array[Int], idx: Int): PutResult[Int] = if (mmapWrite) putRangeAt(bb, offsets, idx, mmapPut) else throw new MmapWriteNotEnabled
   def putRangeAt(bb: ByteBuffer, offsets: Array[Int], idx: Int): PutResult[Int] = putRangeAtSync(bb, offsets, idx)
 
   // write in Future asyncs
-  def putFAsync(bb: ByteBuffer)(implicit executionContext: ExecutionContext): PutResult[Future[AsyncResult]] =
+  def putFAsync(bb: ByteBuffer)(implicit executionContext: ExecutionContext): PutResult[Future[GetResult]] =
     put(bb, (buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit) ⇒ Future(async.putX(buffer, pos, callback)).flatten)
   def putFAsyncMmap(bb: ByteBuffer)(implicit executionContext: ExecutionContext): PutResult[Future[Int]] =
     if (mmapWrite) {
@@ -339,7 +338,7 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     } else {
       throw new MmapWriteNotEnabled
     }
-  def putAtFAsync(bb: ByteBuffer, idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[AsyncResult]] =
+  def putAtFAsync(bb: ByteBuffer, idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[GetResult]] =
     putAt(bb, idx, (buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit) ⇒ Future(async.putX(buffer, pos, callback)).flatten)
   def putAtFAsyncMmap(bb: ByteBuffer, idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[Int]] =
     if (mmapWrite) {
@@ -347,7 +346,7 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     } else {
       throw new MmapWriteNotEnabled
     }
-  def putRangeFAsync(bb: ByteBuffer, offsets: Array[Int])(implicit executionContext: ExecutionContext): PutResult[Future[AsyncResult]] =
+  def putRangeFAsync(bb: ByteBuffer, offsets: Array[Int])(implicit executionContext: ExecutionContext): PutResult[Future[GetResult]] =
     putRange(bb, offsets, (buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit) ⇒ Future(async.putX(buffer, pos, callback)).flatten)
   def putRangeFAsyncMmap(bb: ByteBuffer, offsets: Array[Int])(implicit executionContext: ExecutionContext): PutResult[Future[Int]] =
     if (mmapWrite) {
@@ -355,7 +354,7 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     } else {
       throw new MmapWriteNotEnabled
     }
-  def putRangeAtFAsync(bb: ByteBuffer, offsets: Array[Int], idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[AsyncResult]] =
+  def putRangeAtFAsync(bb: ByteBuffer, offsets: Array[Int], idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[GetResult]] =
     putRangeAt(bb, offsets, idx, (buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit) ⇒ Future(async.putX(buffer, pos, callback)).flatten)
   def putRangeAtFAsyncMmap(bb: ByteBuffer, offsets: Array[Int], idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[Int]] =
     if (mmapWrite) {

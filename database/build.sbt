@@ -46,5 +46,9 @@ def formattingPreferences =
 
 def commonSettings: Seq[Setting[_]] = Seq(
   scalaVersion := scalaV,
-  javaOptions ++= Seq("-Xmx8G", "-Xms4G", "-XX:+UseG1GC")
+  javaOptions ++= Seq("-Xmx8G", "-Xms4G", "-XX:+UseG1GC",
+    "-Dcom.sun.management.jmxremote=true",
+    "-Dcom.sun.management.jmxremote.port=20000",
+    "-Dcom.sun.management.jmxremote.ssl=false",
+    "-Dcom.sun.management.jmxremote.authenticate=false")
 ) ++ scalariformSupportformatSettings

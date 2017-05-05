@@ -1,7 +1,7 @@
 <configuration scan="true">
 
     <property name="logsDirectory" value="logs" />
-    <property name="logsLevel" value="info" />
+    <property name="logsLevel" value="debug" />
 
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>

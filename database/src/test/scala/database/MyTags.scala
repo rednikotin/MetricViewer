@@ -30,4 +30,6 @@ object MyTags {
 
   object FileRangeStoreWithSortingBufferTest extends Tag("FileRangeStoreWithSortingBufferTest")
 
+  object BufferPoolConcurrentTest extends Tag("BufferPoolConcurrentTest")
+
 }

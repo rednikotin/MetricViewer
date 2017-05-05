@@ -169,7 +169,7 @@ class FileRangeStoreTest
       fileStore.shrink(0)
       fileStore.maxQueueSize = 0
 
-      var loadActive = true
+      @volatile var loadActive = true
       val parallel = 4
       for (i ← 1 to parallel) Future {
         val arr1024 = new Array[Byte](1024)
