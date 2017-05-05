@@ -948,7 +948,11 @@ class FileRangeStoreConcurrencyTest
     Future.sequence(for (i ← 0 until cnt) yield Future {
       Try {
         val bb = pool.allocate(1)
+        if (bb.position() != 0) throw new AssertionError(s"trash-0!")
+        bb.put(1.toByte)
+        if (bb.position() != 1) throw new AssertionError(s"trash-1!")
         sleep(tm)
+        if (bb.position() != 1) throw new AssertionError(s"trash-2!")
         pool.release(bb)
       } match {
         case Failure(ex) ⇒
@@ -959,130 +963,47 @@ class FileRangeStoreConcurrencyTest
     }).await(5 minutes)
   }
 
-  def test1(cnt: Int, tm: Int, p: BufferPool.PoolProvider): Unit = {
+  def test1(cnt: Int, tm: Int): Unit = {
     for (i ← 1 to 3) {
       System.gc()
       Thread.sleep(100)
-      val pool = BufferPool.createBufferPool(p)
+      val pool = BufferPool.newNBPool()
       val t0 = System.nanoTime()
       test0(cnt, tm, pool)
       val t1 = System.nanoTime()
-      pool.printStats()
-      println(s"test executed in ${(t1 - t0) / 1e9}, miss=${pool.getMiss}")
+      println(s"NB test executed in ${(t1 - t0) / 1e9}, miss=${pool.getMiss}")
     }
   }
 
-  def test2(cnt: Int, tm: Int, p: BufferPool.PoolProvider): Unit = {
+  def test2(cnt: Int, tm: Int): Unit = {
     for (i ← 1 to 3) {
       System.gc()
       Thread.sleep(100)
+      val pool = BufferPool.newBPool()
       val t0 = System.nanoTime()
-      Future.sequence(for (i ← 0 until cnt) yield Future {
-        Try {
-          val bb = ByteBuffer.allocate(4096)
-          sleep(tm)
-        } match {
-          case Failure(ex) ⇒
-            println(s"POOL TEST EXCEPTION!!!")
-            ex.printStackTrace()
-          case Success(_) ⇒
-        }
-      }).await(5 minutes)
+      test0(cnt, tm, pool)
       val t1 = System.nanoTime()
-      println(s"test executed in ${(t1 - t0) / 1e9}")
-    }
-  }
-
-  def test3(cnt: Int, tm: Int, p: BufferPool.PoolProvider): Unit = {
-    for (i ← 1 to 3) {
-      System.gc()
-      Thread.sleep(100)
-      val t0 = System.nanoTime()
-      Future.sequence(for (i ← 0 until cnt) yield Future {
-        Try {
-          val bb = ByteBuffer.allocateDirect(4096)
-          sleep(tm)
-        } match {
-          case Failure(ex) ⇒
-            println(s"POOL TEST EXCEPTION!!!")
-            ex.printStackTrace()
-          case Success(_) ⇒
-        }
-      }).await(5 minutes)
-      val t1 = System.nanoTime()
-      println(s"test executed in ${(t1 - t0) / 1e9}")
+      println(s"B  test executed in ${(t1 - t0) / 1e9}, miss=${pool.getMiss}")
     }
   }
 
   "BufferPool concurrent test" must {
-    import BufferPool._
-    /*    "test1(30000, 1000, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(30000, 1000, BlockingPool)
-    }
-    "test1(30000, 1000, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(30000, 1000, CLQPool)
-    }
-    "test1(30000, 1000, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(30000, 1000, NBPool)
-    }*/
-
-    /*   // no pool
-    "test2(1000000, 10, ByteBuffer.allocate) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test2(1000000, 10, BlockingPool)
-    }
-    "test3(1000000, 10, ByteBuffer.allocateDirect) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test3(1000000, 10, CLQPool)
-    }*/
-
-    "test1(1000000, 100, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 100, BPool)
-    }
-    /*"test1(1000000, 100, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 100, CLQPool)
-    }*/
-    "test1(1000000, 100, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 100, NBPool)
-    }
-
-    "test1(1000000, 10, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 10, BPool)
-    }
-    /*"test1(1000000, 10, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 10, CLQPool)
-    }*/
-    "test1(1000000, 10, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 10, NBPool)
-    }
-
-    "test1(1000000, 1, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 1, BPool)
-    }
-    /*"test1(1000000, 1, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 1, CLQPool)
-    }*/
-    "test1(1000000, 1, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 1, NBPool)
-    }
-
-    /*    "test1(1000000, 0, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 0, BlockingPool)
-    }
-    "test1(1000000, 0, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 0, CLQPool)
-    }
-    "test1(1000000, 0, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(1000000, 0, NBPool)
-    }
-
-    "test1(3000, 10000, BlockingPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(3000, 10000, BlockingPool)
-    }
-    "test1(3000, 10000, CLQPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(3000, 10000, CLQPool)
-    }
-    "test1(3000, 10000, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in {
-      test1(3000, 10000, NBPool)
-    }*/
+    "test1(30000, 1000, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test1(30000, 1000) }
+    "test1(30000, 1000, BPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test2(30000, 1000) }
+    "test1(1000000, 100, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test1(1000000, 100) }
+    "test1(1000000, 100, BPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test2(1000000, 100) }
+    "test1(1000000, 10, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test1(1000000, 10) }
+    "test1(1000000, 10, BPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test2(1000000, 10) }
+    "test1(1000000, 1, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test1(1000000, 1) }
+    "test1(1000000, 1, BPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test2(1000000, 1) }
+    "test1(1000000, 0, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test1(1000000, 0) }
+    "test1(1000000, 0, BPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test2(1000000, 0) }
+    "test1(3000, 10000, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test1(3000, 10000) }
+    "test1(3000, 10000, BPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test2(3000, 10000) }
+    "test1(1000000 0, NBPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test1(1000000, 0) }
+    "test1(1000000 0, BPool) concurrent test" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test2(1000000, 0) }
+    "test1(1000000 0, NBPool) concurrent test-2" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test1(1000000, 0) }
+    "test1(1000000 0, BPool) concurrent test-2" taggedAs (BufferPoolConcurrentTest, FileRangeStoreConcurrency) in { test2(1000000, 0) }
   }
 
 }

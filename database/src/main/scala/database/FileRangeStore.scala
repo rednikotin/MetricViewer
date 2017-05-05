@@ -153,7 +153,7 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     StandardOpenOption.CREATE
   )
 
-  protected val bufferPool: BufferPool = BufferPool.createDefault()
+  protected val bufferPool = BufferPool()
   def releaseBuffer(bb: ByteBuffer): Unit = bufferPool.release(bb)
   protected val reserved_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, RESERVED_LIMIT)
   private val slots_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, RESERVED_LIMIT, SLOTS_SIZE)
