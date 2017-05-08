@@ -14,14 +14,21 @@ import UnsafeUtil._
 // todo: cleanup after failed write + other error handling
 // done: bulk load api - putRange/putRangeAt API
 // done: sorting buffer
-// todo: review concurrency issue
-// todo: create version with unsafe instead?
 
 object FileRangeStore {
-  final val STEP: Int = 4096
-  final val RESERVED_LIMIT: Int = 1073741824
+  final val TEST_COEFF: Int = 1
+  final val STEP_SLOT_SIZE: Int = 4096
+  final val RESERVED_LIMIT: Int = 1048576 * TEST_COEFF
   final val MAX_POS: Int = Int.MaxValue
-  final val MAX_WRITE_QUEUE: Int = 100
+  final val MAX_WRITE_QUEUE: Int = 1024
+
+  final val SORTING_BUFFER_DATA_SIZE: Int = 524288 * TEST_COEFF
+  final val SORTING_BUFFER_SLOTS_SIZE: Int = 65536 * TEST_COEFF
+  final val SORTING_BUFFER_TOTAL_SLOTS: Int = SORTING_BUFFER_SLOTS_SIZE / 4
+  final val SORTING_BUFFER_FIRST_SLOT: Int = RESERVED_LIMIT - SORTING_BUFFER_DATA_SIZE - SORTING_BUFFER_SLOTS_SIZE
+  final val SORTING_BUFFER_FIRST_SLOT_LEN: Int = SORTING_BUFFER_FIRST_SLOT - SORTING_BUFFER_SLOTS_SIZE
+  final val SORTING_BUFFER_FIRST_SLOT_MAP: Int = SORTING_BUFFER_FIRST_SLOT_LEN - SORTING_BUFFER_SLOTS_SIZE
+  final val SORTING_BUFFER_FLUSH_AUX: Int = SORTING_BUFFER_DATA_SIZE >> 3
 
   class MMInt(mmap: MappedByteBuffer, addr: Int, initValue: Option[Int]) {
     @volatile private var cache: Int = _
@@ -131,19 +138,20 @@ object FileRangeStore {
   class MmapWriteNotEnabled extends FileRangeStoreException("MMAP writes are not explicitly enabled")
 }
 
-class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi with LazyLogging {
+class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = false) extends RangeAsyncApi with LazyLogging {
   import FileRangeStore._
   /*
        Small file structure:
-       0 - 64K => reserved for control needs
-       64k - 64k + 4 * slots => offsets
-       64k + 4 * slots => data
+       < 1m => reserved for control needs
+       1m => offsets
+       1m + 4 * slots => data
   */
 
-  final val SLOTS_SIZE: Int = if (totalSlots % 1024 == 0) totalSlots * 4 else (totalSlots * 4 / STEP + 1) * STEP
+  final val SLOTS_SIZE: Int = if (totalSlots % 1024 == 0) totalSlots * 4 else (totalSlots * 4 / STEP_SLOT_SIZE + 1) * STEP_SLOT_SIZE
   final val SLOTS_LIMIT: Int = RESERVED_LIMIT + SLOTS_SIZE
 
-  protected val fileCreated: Boolean = !file.exists()
+  protected val initializationRequired: Boolean = !file.exists() || withCrean
+
   val raf: RandomAccessFile = new RandomAccessFile(file, "rw")
   val channel: FileChannel = raf.getChannel
   val async: AsynchronousFileChannel = AsynchronousFileChannel.open(
@@ -177,10 +185,11 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
   private def mmapPut(byteBuffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit): Int =
     data_mmap.putX(byteBuffer, pos - SLOTS_LIMIT, callback)
 
-  protected val currSlot = new MMInt(reserved_mmap, 0, if (fileCreated) Some(0) else None)
-  private val currPos = new MMInt(reserved_mmap, 4, if (fileCreated) Some(SLOTS_LIMIT) else None)
+  protected val currSlot = new MMInt(reserved_mmap, 0, if (initializationRequired) Some(0) else None)
+  private val currPos = new MMInt(reserved_mmap, 4, if (initializationRequired) Some(SLOTS_LIMIT) else None)
+  assert(currPos.get >= SLOTS_LIMIT)
   private val slots = slots_mmap.asIntBuffer()
-  @volatile private var readWatermark = if (fileCreated) -1 else currSlot.get - 1
+  @volatile private var readWatermark = if (initializationRequired) -1 else currSlot.get - 1
 
   protected object writeLock
   private object queueLock
@@ -192,8 +201,23 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
   @volatile private var queueSize = 0
   private val writeQueue = scala.collection.mutable.SortedSet.empty[Int]
   private def encwq(slot: Int): Unit = queueLock.synchronized {
-    if (queueSize >= MAX_WRITE_QUEUE) {
-      throw new WriteQueueOverflowException(s"writeQueue.size=${writeQueue.size} >= MAX_WRITE_QUEUE=$MAX_WRITE_QUEUE")
+    def queueOk = queueSize < MAX_WRITE_QUEUE
+    if (!queueOk) {
+      var waitCnt = 1024
+      while (!queueOk && waitCnt > 0) {
+        Thread.`yield`()
+        waitCnt -= 1
+      }
+      if (!queueOk) {
+        waitCnt = 10
+        while (!queueOk && waitCnt > 0) {
+          Thread.sleep(11 - waitCnt)
+          waitCnt -= 1
+        }
+        if (!queueOk) {
+          throw new WriteQueueOverflowException(s"writeQueue.size=${writeQueue.size} >= MAX_WRITE_QUEUE=$MAX_WRITE_QUEUE")
+        }
+      }
     }
     writeQueue.add(slot)
     queueSize += 1
@@ -446,7 +470,11 @@ class FileRangeStore(val file: File, val totalSlots: Int) extends RangeAsyncApi 
     var sz1 = 0
     while (sz1 < limit && i < currSlot.get) {
       val bb = get(i).await()
-      println(s"$i -> ${bb.mkString(", ")}")
+      val big = if (bb.remaining() > 100) {
+        bb.limit(40)
+        ", ..."
+      } else ""
+      println(s"$i -> ${bb.mkString(", ")}$big")
       i += 1
       sz1 += bb.limit()
     }

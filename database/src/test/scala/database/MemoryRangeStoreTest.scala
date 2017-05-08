@@ -25,43 +25,44 @@ class MemoryRangeStoreTest
   val arr3: Array[Byte] = Array(8.toByte, 9.toByte, 10.toByte, 11.toByte, 12.toByte)
 
   "MemoryRangeStore InMemory test" must {
-    val rs3elem: MemoryRangeStore = RangeStore.createInMemory(30, 1 << 20)
-    rs3elem.put(arr1)
-    rs3elem.put(arr2)
-    rs3elem.put(arr3)
 
     "rs3elem test" in {
+      val rs3elem: MemoryRangeStore = RangeStore.createInMemory(30, 1 << 20)
+      rs3elem.put(arr1)
+      rs3elem.put(arr2)
+      rs3elem.put(arr3)
+
       assert(rs3elem.get(2).get() === 8)
       assert(rs3elem.get(1).limit() === 4)
       assert(rs3elem.get(1).get() === 4)
       assert(rs3elem.get(0).limit() === 3)
     }
 
-    val rs3elemBB: MemoryRangeStore = RangeStore.createInMemory(30, 1 << 20)
-    rs3elemBB.put(ByteBuffer.wrap(arr3))
-    rs3elemBB.put(ByteBuffer.wrap(arr1))
-    rs3elemBB.put(ByteBuffer.wrap(arr2))
-
     "rs3elemBB test" in {
+      val rs3elemBB: MemoryRangeStore = RangeStore.createInMemory(30, 1 << 20)
+      rs3elemBB.put(ByteBuffer.wrap(arr3))
+      rs3elemBB.put(ByteBuffer.wrap(arr1))
+      rs3elemBB.put(ByteBuffer.wrap(arr2))
+
       assert(rs3elemBB.get(2).get() === 4)
       assert(rs3elemBB.get(1).limit() === 3)
       assert(rs3elemBB.get(1).get() === 1)
       assert(rs3elemBB.get(0).limit() === 5)
     }
 
-    val rsRangeTest1: MemoryRangeStore = RangeStore.createInMemory(30, 1 << 20)
-    rsRangeTest1.put(arr1)
-    val arrMid = Array(
-      20.toByte, 21.toByte, 22.toByte,
-      23.toByte, 24.toByte, 25.toByte, 26.toByte, 27.toByte,
-      28.toByte, 29.toByte
-    )
-    val bbMid = ByteBuffer.wrap(arrMid)
-    val offsets = Array(3, 8)
-    rsRangeTest1.putRange(bbMid, offsets)
-    rsRangeTest1.put(arr2)
-
     "rsRangeTest1 test" in {
+      val rsRangeTest1: MemoryRangeStore = RangeStore.createInMemory(30, 1 << 20)
+      rsRangeTest1.put(arr1)
+      val arrMid = Array(
+        20.toByte, 21.toByte, 22.toByte,
+        23.toByte, 24.toByte, 25.toByte, 26.toByte, 27.toByte,
+        28.toByte, 29.toByte
+      )
+      val bbMid = ByteBuffer.wrap(arrMid)
+      val offsets = Array(3, 8)
+      rsRangeTest1.putRange(bbMid, offsets)
+      rsRangeTest1.put(arr2)
+
       assert(rsRangeTest1.size === 5)
       assert(rsRangeTest1.get(1).get() === 20)
       assert(rsRangeTest1.get(2).get() === 23)
@@ -86,11 +87,11 @@ class MemoryRangeStoreTest
       assert(rsRangeTest1.getRangeS(4, 5).head === 4)
     }
 
-    val rsMemSeq: MemoryRangeStore = RangeStore.createInMemory(50, 1 << 20)
-    for (i ← 1 to 50) rsMemSeq.put(Array(i.toByte))
-    val range = rsMemSeq.getRangeS(0, 49)
-
     "rsMemSeq test" in {
+      val rsMemSeq: MemoryRangeStore = RangeStore.createInMemory(50, 1 << 20)
+      for (i ← 1 to 50) rsMemSeq.put(Array(i.toByte))
+      val range = rsMemSeq.getRangeS(0, 49)
+
       assert(rsMemSeq.size === 50)
       range shouldBe a[MemorySeq]
       assert(range.last === 50)
@@ -127,20 +128,20 @@ class MemoryRangeStoreTest
 
   "MemoryRangeStore Mapped test" must {
 
-    val file = new File("data/test4Gb.data")
-    val headerSize = 10000
-    val arrSize = 1 << 20
-    //val fileSize = 1L << 32
-    val fileSize = 1L << 28
-    val slots = ((fileSize - headerSize * 4) / arrSize).toInt
-    val rsBigRangeTest2: MemoryRangeStore = RangeStore.createMapped(headerSize, fileSize, file)
-    val arr = new Array[Byte](arrSize)
-    for (i ← arr.indices) arr(i) = i.toByte
-    for (i ← 1 to slots) {
-      rsBigRangeTest2.put(arr)
-    }
-
     "rsBigRangeTest2" in {
+      val file = new File("data/test4Gb.data")
+      val headerSize = 10000
+      val arrSize = 1 << 20
+      //val fileSize = 1L << 32
+      val fileSize = 1L << 28
+      val slots = ((fileSize - headerSize * 4) / arrSize).toInt
+      val rsBigRangeTest2: MemoryRangeStore = RangeStore.createMapped(headerSize, fileSize, file)
+      val arr = new Array[Byte](arrSize)
+      for (i ← arr.indices) arr(i) = i.toByte
+      for (i ← 1 to slots) {
+        rsBigRangeTest2.put(arr)
+      }
+
       assert(rsBigRangeTest2.size === slots)
       assert(rsBigRangeTest2.get(slots / 3).get() === 0)
       assert(rsBigRangeTest2.getRange(slots / 3, slots / 3 + 10).limit() === 11 * arrSize)

@@ -30,12 +30,16 @@ object MyTags {
 
   object FileRangeStoreWithSortingBufferTest extends Tag("FileRangeStoreWithSortingBufferTest")
 
-  object FileRangeStoreWithSortingBufferV2Test extends Tag("FileRangeStoreWithSortingBufferV2Test")
-
   object BufferPoolConcurrentTest extends Tag("BufferPoolConcurrentTest")
 
   object ConcurencyAlgAllTest extends Tag("ConcurencyAlgAllTest")
 
   object HeavyTemporaryTest extends Tag("HeavyTemporaryTest")
+
+  object WeirdCase1 extends Tag("WeirdCase1")
+
+  object PerfCase1 extends Tag("PerfCase1")
+
+  object SBFlush extends Tag("SBFlush")
 
 }
