@@ -21,7 +21,7 @@ object BufferPool {
   final val MAX_SIZE: Int = 1 << MAX_SHIFT
   final val MAX_RETRIES: Int = 32
 
-  def apply(): BufferPool = new BufferPoolImpl(NBPool)
+  def apply(): BufferPool = new BufferPoolImpl(BPool)
   def newNBPool(): BufferPool = new BufferPoolImpl(NBPool)
   def newBPool(): BufferPool = new BufferPoolImpl(BPool)
 
@@ -104,6 +104,7 @@ object BufferPool {
       var res = tryGet0()
       var i = 0
       while (res == null && i < MAX_RETRIES) {
+        Thread.`yield`()
         i += 1
         res = tryGet0()
       }

@@ -15,8 +15,8 @@ import MyTags._
 
 import scala.util.{Random, Try}
 
-class FileRangeStoreWithSortingBufferTest
-    extends TestKit(ActorSystem("FileRangeStoreWithSortingBufferTest"))
+class FileRangeStoreWithSortingBufferV2Test
+    extends TestKit(ActorSystem("FileRangeStoreWithSortingBufferV2Test"))
     with DefaultTimeout
     with WordSpecLike
     with Matchers
@@ -43,16 +43,18 @@ class FileRangeStoreWithSortingBufferTest
 
   def rewindBBs(): Unit = buffers.foreach(_.rewind())
 
-  "FileRangeStoreWithSortingBufferTest tests" must {
-    "inserting random shuffled" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSB001")
+  "FileRangeStoreWithSortingBufferV2Test tests" must {
+    "inserting random shuffled" taggedAs FileRangeStoreWithSortingBufferV2Test in {
+      val fileTest = new File("data/storeSBV2001")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreWithSortingBufferV2(fileTest, 2 * slots)
 
       rewindBBs()
       shuffleBuffers.foreach {
         case (bb, slot) ⇒
           fileStore.putAtViaSortingBuffer(bb, slot)
+        //println(" -> ", slot, bb.remaining(), bb.toSeq.mkString("[", ", ", "]"))
+        //fileStore.print()
       }
 
       //fileStore.print()
@@ -75,10 +77,45 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "inserting random shuffled without filterSlot" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSB002")
+    "copy test" taggedAs FileRangeStoreWithSortingBufferV2Test in {
+      val fileTest = new File("data/storeSBV2001-source")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreWithSortingBufferV2(fileTest, 2 * slots)
+
+      rewindBBs()
+      shuffleBuffers.foreach {
+        case (bb, slot) ⇒
+          fileStore.putAtViaSortingBuffer(bb, slot)
+        //println(" -> ", slot, bb.remaining(), bb.toSeq.mkString("[", ", ", "]"))
+        //fileStore.print()
+      }
+
+      //fileStore.print()
+
+      val fileStore2 = fileStore.copyTo(new File("data/storeSBV2001-copy"))
+
+      rewindBBs()
+
+      assert(fileStore2.size === slots)
+
+      assert(fileStore2.get(2).await().toSeq === buffers(2).toSeq)
+      assert(fileStore2.get(5).await().limit() === buffers(5).limit())
+      assert(fileStore2.get(6).await().get() === buffers(6).get())
+      assert(fileStore2.get(0).await().limit() === buffers(0).limit())
+
+      shuffleBuffers.foreach {
+        case (bb, slot) ⇒
+          val bb0 = fileStore2.get(slot).await()
+          assert(bb0.toSeq === bb.toSeq)
+          fileStore2.releaseBuffer(bb0)
+
+      }
+    }
+
+    "inserting random shuffled without filterSlot" taggedAs FileRangeStoreWithSortingBufferV2Test in {
+      val fileTest = new File("data/storeSBV2002")
+      fileTest.delete()
+      val fileStore = new FileRangeStoreWithSortingBufferV2(fileTest, 2 * slots)
 
       rewindBBs()
       shuffleBuffers.filter(_._2 != filterSlot).foreach {
@@ -121,10 +158,10 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "inserting random shuffled without 0 slot" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSB003")
+    "inserting random shuffled without 0 slot" taggedAs FileRangeStoreWithSortingBufferV2Test in {
+      val fileTest = new File("data/storeSBV2003")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreWithSortingBufferV2(fileTest, 2 * slots)
 
       rewindBBs()
       shuffleBuffers.filter(_._2 != 0).foreach {
@@ -155,10 +192,10 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "inserting random shuffled async" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSB004")
+    "inserting random shuffled async" taggedAs FileRangeStoreWithSortingBufferV2Test in {
+      val fileTest = new File("data/storeSBV2004")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreWithSortingBufferV2(fileTest, 2 * slots)
 
       rewindBBs()
       Future.sequence(shuffleBuffers.map {
@@ -181,10 +218,10 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "inserting more than 1024 unordereds to get gaps" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSB005")
+    "inserting more than 1024 unordereds to get gaps" taggedAs FileRangeStoreWithSortingBufferV2Test in {
+      val fileTest = new File("data/storeSBV2005")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreWithSortingBufferV2(fileTest, 2 * slots)
 
       (1 to 1024).map { i ⇒
         val bb = ByteBuffer.wrap(Array(i.toByte))
@@ -195,6 +232,7 @@ class FileRangeStoreWithSortingBufferTest
       assert(fileStore.size === 0)
 
       fileStore.putAtViaSortingBuffer(ByteBuffer.wrap(Array(1025.toByte)), 1025)
+
       //fileStore.print(3000)
 
       assert(fileStore.size === 1026)
@@ -202,17 +240,17 @@ class FileRangeStoreWithSortingBufferTest
       assert(fileStore.get(666).await().get === 666.toByte)
     }
 
-    "inserting overhread measuring" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val thisS = 1024000
+    "inserting overhread measuring" taggedAs FileRangeStoreWithSortingBufferV2Test in {
+      val thisS = 1024
       val shuffle = rnd.shuffle((0 until thisS).toList)
       val array = (0 until 32).map(_.toByte).toArray
 
       def testWB(): Double = {
         System.gc()
         Thread.sleep(100)
-        val fileTest = new File("data/storeSB006")
+        val fileTest = new File("data/storeSBV2006")
         fileTest.delete()
-        val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS)
+        val fileStore = new FileRangeStoreWithSortingBufferV2(fileTest, 2 * thisS)
         fileStore.shrink(0)
         val t0 = System.nanoTime()
         shuffle.map { i ⇒
@@ -225,14 +263,15 @@ class FileRangeStoreWithSortingBufferTest
 
       def testDirect(): Double = {
         System.gc()
-        val fileTest = new File("data/storeSB007")
+        Thread.sleep(100)
+        val fileTest = new File("data/storeSBV2007")
         fileTest.delete()
-        val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS)
+        val fileStore = new FileRangeStoreWithSortingBufferV2(fileTest, 2 * thisS)
         fileStore.shrink(0)
         val t2 = System.nanoTime()
         shuffle.sorted.map { i ⇒
           val bb = ByteBuffer.wrap(array)
-          Try(fileStore.putAt(bb, i)).recover { case ex: FileRangeStore.SlotAlreadyUsedException ⇒ }
+          Try(fileStore.putAtSync(bb, i)).recover { case ex: FileRangeStore.SlotAlreadyUsedException ⇒ }
         }
         val t3 = System.nanoTime()
         t3 - t2
@@ -243,6 +282,41 @@ class FileRangeStoreWithSortingBufferTest
         val t2 = testDirect() / 1e6
         println(s"$i. with buffer = $t1, direct=$t2")
       }
+
+      for (i ← 1 to 10) test(i)
+    }
+
+    "heavy inserting" taggedAs HeavyTemporaryTest in {
+      val thisS = 1024
+      val shuffle = rnd.shuffle((0 until thisS).toList)
+      val array = (0 until 32).map(_.toByte).toArray
+
+      System.gc()
+      val fileTest = new File("data/storeSBV2006")
+      fileTest.delete()
+      val fileStore = new FileRangeStoreWithSortingBufferV2(fileTest, 2 * thisS)
+
+      def testWB(): Double = {
+        fileStore.shrink(0)
+        val t0 = System.nanoTime()
+        shuffle.map { i ⇒
+          val bb = ByteBuffer.wrap(array)
+          Try(fileStore.putAtViaSortingBuffer(bb, i)).recover { case ex: FileRangeStore.SlotAlreadyUsedException ⇒ }
+        }
+        val t1 = System.nanoTime()
+        t1 - t0
+      }
+
+      def test(i: Int) = {
+        val t1 = testWB() / 1e6
+        println(s"$i. with buffer = $t1")
+      }
+
+      /*      for (i ← 10.to(0, -1)) {
+        println("..." + i)
+        Thread.sleep(1000)
+      }
+      println("Go!!!")*/
 
       for (i ← 1 to 10) test(i)
     }

@@ -19,7 +19,7 @@ import UnsafeUtil._
 
 object FileRangeStore {
   final val STEP: Int = 4096
-  final val RESERVED_LIMIT: Int = 65536
+  final val RESERVED_LIMIT: Int = 1073741824
   final val MAX_POS: Int = Int.MaxValue
   final val MAX_WRITE_QUEUE: Int = 100
 

@@ -2,14 +2,18 @@ package database
 
 import java.io.{File, RandomAccessFile}
 import java.nio.ByteBuffer
+
 import org.scalatest.{BeforeAndAfterAll, Matchers, Tag, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
 import BufferUtil._
 import database.FileRangeStore._
+
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
 import MyTags._
+
+import scala.util.Try
 
 class FileRangeStoreTest
     extends TestKit(ActorSystem("FileRangeStoreTest"))
@@ -165,7 +169,7 @@ class FileRangeStoreTest
       }
     }
 
-    "try to flood queue" in {
+    "try to flood queue" taggedAs BigTest in {
       fileStore.shrink(0)
       fileStore.maxQueueSize = 0
 
@@ -186,12 +190,15 @@ class FileRangeStoreTest
       // try to get long queue
       val res = Future.sequence(for (i ← 1 to 40000) yield {
         bb.rewind()
-        Future(fileStore.putAsync(bb))
+        Future {
+          fileStore.putAsync(bb)
+        }
       })
 
-      Await.ready(res, 300 seconds)
+      Try(Await.ready(res, 30 seconds))
       loadActive = false
 
+      println(s"fileStore.maxQueueSize = ${fileStore.maxQueueSize}")
       if (fileStore.maxQueueSize >= FileRangeStore.MAX_WRITE_QUEUE) {
         assertThrows[WriteQueueOverflowException](res.value.get.get)
       } else {
