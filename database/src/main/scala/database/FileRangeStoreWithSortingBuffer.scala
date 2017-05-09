@@ -124,7 +124,8 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
   private val sb_slots_len = sb_slots_len_mmap.asIntBuffer()
   private val sb_slots_map = sb_slots_map_mmap.asIntBuffer()
 
-  /*private*/ val sbMap: mutable.TreeMap[Int, Int] = collection.mutable.TreeMap.empty[Int, Int]
+  // /*private*/ val sbMap: mutable.TreeMap[Int, Int] = collection.mutable.TreeMap.empty[Int, Int]
+  /*private*/ val sbMap: JavaTreeMap[Int, Int] = new JavaTreeMap[Int, Int]()
   /*private*/ val sb_free_slot: mutable.ArrayStack[Int] = mutable.ArrayStack[Int]()
   /*private*/ val sb_free_space: SpaceManager = spaceManagerType match {
     case SM ⇒ intervalSM(SORTING_BUFFER_DATA_SIZE)
