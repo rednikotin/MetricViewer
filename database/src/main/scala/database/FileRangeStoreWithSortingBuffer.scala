@@ -27,7 +27,7 @@ object FileRangeStoreWithSortingBuffer {
       private val intervals = new Intervals.IntervalSet(0, size)
       def allocated(pos: Int, len: Int): Unit = intervals.allocated(pos, len)
       def allocate(len: Int): Int = try {
-        intervals.allocate(len).left
+        intervals.allocate(len)._1
       } catch {
         case ex: Intervals.AllocationFailedException ⇒
           throw new NoSpaceLeftException(ex.msg)
@@ -36,7 +36,7 @@ object FileRangeStoreWithSortingBuffer {
       }
       def release(pos: Int, len: Int): Unit = intervals.release(pos, len)
       def clear(): Unit = intervals.clear()
-      def getFreeSpace: Iterator[(Int, Int)] = intervals.getIntervals.iterator.map(i ⇒ (i.left, i.length))
+      def getFreeSpace: Iterator[(Int, Int)] = intervals.getIntervals.iterator
     }
   }
 
@@ -55,19 +55,21 @@ object FileRangeStoreWithSortingBuffer {
     }
   }
 
-  trait SpaceManagerType
+  sealed trait SpaceManagerType
   object SM extends SpaceManagerType
   object RR extends SpaceManagerType
 
   case class CountStats(
-      flushCount:           Int,
+      flushNoSpaceCount:    Int,
+      flushNoSlotCount:     Int,
       defragmentationCount: Int,
       flushPrefixCount:     Int,
       ignoreCount:          Int,
       tooBig:               Int
   ) {
     override def toString: String =
-      s"{flushCount=$flushCount, " +
+      s"{flushNoSpaceCount=$flushNoSpaceCount, " +
+        s"flushNoSlotCount=$flushNoSlotCount, " +
         s"defragmentationCount=$defragmentationCount, " +
         s"flushPrefixCount=$flushPrefixCount, " +
         s"ignoreCount=$ignoreCount, " +
@@ -89,19 +91,21 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
        > 1m + 4 * slots => data
   */
 
-  @volatile private var flushCount = 0
+  @volatile private var flushNoSpaceCount = 0
+  @volatile private var flushNoSlotCount = 0
   @volatile private var defragmentationCount = 0
   @volatile private var flushPrefixCount = 0
   @volatile private var ignoreCount = 0
   @volatile private var tooBig = 0
   def resetCounters(): Unit = {
-    flushCount = 0
+    flushNoSpaceCount = 0
+    flushNoSlotCount = 0
     defragmentationCount = 0
     flushPrefixCount = 0
     ignoreCount = 0
     tooBig = 0
   }
-  def getCountStats: CountStats = CountStats(flushCount, defragmentationCount, flushPrefixCount, ignoreCount, tooBig)
+  def getCountStats: CountStats = CountStats(flushNoSpaceCount, flushNoSlotCount, defragmentationCount, flushPrefixCount, ignoreCount, tooBig)
 
   private val sb_slots_map_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT_MAP, SORTING_BUFFER_SLOTS_SIZE)
   private val sb_slots_len_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT_LEN, SORTING_BUFFER_SLOTS_SIZE)
@@ -120,9 +124,9 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
   private val sb_slots_len = sb_slots_len_mmap.asIntBuffer()
   private val sb_slots_map = sb_slots_map_mmap.asIntBuffer()
 
-  private val sbMap = collection.mutable.TreeMap.empty[Int, Int]
-  private val sb_free_slot = mutable.ArrayStack[Int]()
-  private val sb_free_space: SpaceManager = spaceManagerType match {
+  /*private*/ val sbMap: mutable.TreeMap[Int, Int] = collection.mutable.TreeMap.empty[Int, Int]
+  /*private*/ val sb_free_slot: mutable.ArrayStack[Int] = mutable.ArrayStack[Int]()
+  /*private*/ val sb_free_space: SpaceManager = spaceManagerType match {
     case SM ⇒ intervalSM(SORTING_BUFFER_DATA_SIZE)
     case RR ⇒ intervalRR(SORTING_BUFFER_DATA_SIZE)
   }
@@ -145,6 +149,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
 
   private def resetSlots(): Unit = {
     for (sbslot ← 0 until SORTING_BUFFER_TOTAL_SLOTS) sb_slots.put(sbslot, 0)
+    sb_free_slot.clear()
     sb_free_slot ++= (0 until SORTING_BUFFER_TOTAL_SLOTS)
     sb_free_space.clear()
     sbMap.clear()
@@ -160,7 +165,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
   }
 
   private def defragmentation(): Unit = {
-    val data = sbMap.map { case (sbslot, slot) ⇒ (getsb(sbslot), slot) }
+    val data = sbMap.map { case (slot, sbslot) ⇒ (getsb(sbslot), slot) }
     resetSlots()
     data.foreach { case (buffer, slot) ⇒ sb_put(buffer, slot) }
     defragmentationCount += 1
@@ -171,7 +176,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
     var inserted = false
     while (!inserted) {
       try {
-        val res = putRangeAtSync(buffer, offsets, slot)
+        putRangeAtSync(buffer, offsets, slot)
         inserted = true
       } catch {
         case ex: SlotAlreadyUsedException ⇒
@@ -224,12 +229,12 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
         sbMap -= slot
         sb_free_space.release(pos, len)
         sb_slots.put(sbslot, 0)
+        sb_free_slot.push(sbslot)
     }
     flushPrefixCount += 1
   }
 
   private def flush(buffer: ByteBuffer, slot: Int): Future[Any] = {
-    flushCount += 1
     val isAfter = sbMap.isEmpty || slot > sbMap.lastKey
     val bufferLen = buffer.remaining()
     val sbLen = sbMap.values.map(sb_slots_len.get).sum
@@ -345,6 +350,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
 
   private def sb_put(buffer: ByteBuffer, slot: Int): Future[Any] = {
     if (sb_free_slot.isEmpty) {
+      flushNoSlotCount += 1
       flush(buffer, slot)
     } else {
       val len = buffer.remaining()
@@ -364,6 +370,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
           Future.successful()
         case Failure(ex) ⇒ ex match {
           case _: NoSpaceLeftException ⇒
+            flushNoSpaceCount += 1
             flush(buffer, slot)
           case ex: Throwable ⇒
             throw ex

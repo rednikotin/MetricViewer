@@ -38,8 +38,18 @@ object MyTags {
 
   object WeirdCase1 extends Tag("WeirdCase1")
 
+  object WeirdCase2 extends Tag("WeirdCase2")
+
+  object WeirdCase3 extends Tag("WeirdCase3")
+
   object PerfCase1 extends Tag("PerfCase1")
 
   object SBFlush extends Tag("SBFlush")
+
+  object SMWBIgnore extends Tag("SMWBIgnore")
+
+  object IntervalsImplTest extends Tag("IntervalsImplTest")
+
+  object IntervalsImplPrintTest extends Tag("IntervalsImplPrintTest")
 
 }
