@@ -11,6 +11,7 @@ import database.FileRangeStore._
 
 import scala.concurrent.Future
 import MyTags._
+import database.FileRangeStoreWithSortingBuffer.TrashMeta
 
 import scala.util.{Failure, Random, Success, Try}
 
@@ -568,7 +569,7 @@ class FileRangeStoreWithSortingBufferTest
       println(s"prepating data for $maxSlot elements")
       var t0 = System.nanoTime()
 
-      val data = (0 until thisS).grouped(maxSlot - 10).flatMap(rnd.shuffle(_)).toSeq
+      val data = (0 until thisS).grouped(maxSlot / 5).flatMap(rnd.shuffle(_)).toSeq
 
       /* val data0 = IntBuffer.wrap((0 until thisS).toArray)
       val data1 = IntBuffer.allocate(thisS)
@@ -798,6 +799,36 @@ class FileRangeStoreWithSortingBufferTest
 
       testDirect(0)
       testDirect(1)
+    }
+
+    "trash test" taggedAs (FileRangeStoreWithSortingBufferTest, TrashTest) in {
+      val fileTest = new File("data/storeSBVWTT0001")
+      val fileTestT = new File("data/storeSBVWTT0001_TRASH")
+      fileTest.delete()
+      fileTestT.delete()
+      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * maxSlot, true)
+      fileStore.enableTrash(fileTestT)
+      fileStore.putAtSync(ByteBuffer.wrap(new Array[Byte](10)).put(1.toByte), 10)
+
+      val bb1 = ByteBuffer.allocate(3).put(9.toByte).put(9.toByte).put(9.toByte)
+      bb1.flip()
+      fileStore.putAtViaSortingBufferSilent(bb1, 9).await()
+      val bb2 = ByteBuffer.allocate(1).put(8.toByte)
+      bb2.flip()
+      fileStore.putAtViaSortingBufferSilent(bb2, 8).await()
+      val bb3 = ByteBuffer.allocate(2).put(7.toByte).put(7.toByte)
+      bb3.flip()
+      fileStore.putAtViaSortingBufferSilent(bb3, 7).await()
+
+      val data = (for (tm ← fileStore.readTrashMeta.take(100)) yield {
+        val bb = fileStore.readTrashBufferSync(tm)
+        (tm, bb.toSeq)
+      }).toList
+      assert(data(0) === (TrashMeta(9, 3, FileRangeStore.TRASH_RESERVED + 8), Seq(9.toByte, 9.toByte, 9.toByte)))
+      assert(data(1) === (TrashMeta(8, 1, FileRangeStore.TRASH_RESERVED + 16 + 3), Seq(8.toByte)))
+      assert(data(2) === (TrashMeta(7, 2, FileRangeStore.TRASH_RESERVED + 24 + 3 + 1), Seq(7.toByte, 7.toByte)))
+      assert(data.size === 3)
+
     }
   }
 }

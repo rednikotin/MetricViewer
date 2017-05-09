@@ -30,6 +30,8 @@ object FileRangeStore {
   final val SORTING_BUFFER_FIRST_SLOT_MAP: Int = SORTING_BUFFER_FIRST_SLOT_LEN - SORTING_BUFFER_SLOTS_SIZE
   final val SORTING_BUFFER_FLUSH_AUX: Int = SORTING_BUFFER_DATA_SIZE / 8
 
+  final val TRASH_RESERVED = 4096
+
   class MMInt(mmap: MappedByteBuffer, addr: Int, initValue: Option[Int]) {
     @volatile private var cache: Int = _
     def get: Int = cache
@@ -161,6 +163,7 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
     StandardOpenOption.CREATE
   )
 
+  // should be release incoming buffers after write? in deqwq?
   protected val bufferPool = BufferPool()
   def releaseBuffer(bb: ByteBuffer): Unit = bufferPool.release(bb)
   protected val reserved_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, RESERVED_LIMIT)

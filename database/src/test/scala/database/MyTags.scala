@@ -52,4 +52,6 @@ object MyTags {
 
   object IntervalsImplPrintTest extends Tag("IntervalsImplPrintTest")
 
+  object TrashTest extends Tag("TrashTest")
+
 }

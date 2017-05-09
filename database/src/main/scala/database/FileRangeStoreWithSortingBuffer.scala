@@ -1,14 +1,16 @@
 package database
 
 import java.io.{File, RandomAccessFile}
-import java.nio.{ByteBuffer, MappedByteBuffer}
-import java.nio.channels.FileChannel
+import java.nio.{ByteBuffer, IntBuffer, MappedByteBuffer}
+import java.nio.channels.{AsynchronousFileChannel, FileChannel}
+import java.nio.file.StandardOpenOption
+
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
-import scala.concurrent.Future
+import scala.concurrent.{Future, Promise}
 import scala.util._
 import FileRangeStore._
-import database.FileRangeStoreWithSortingBuffer._
+import database.FileRangeStoreWithSortingBuffer.{TrashMeta, _}
 
 object FileRangeStoreWithSortingBuffer {
   trait SpaceManager {
@@ -75,6 +77,8 @@ object FileRangeStoreWithSortingBuffer {
         s"ignoreCount=$ignoreCount, " +
         s"tooBig=$tooBig}"
   }
+
+  case class TrashMeta(idx: Int, bufferLen: Int, pos: Int)
 }
 
 class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Boolean = false, spaceManagerType: SpaceManagerType = SM) extends FileRangeStore(file, totalSlots, withCrean) {
@@ -404,7 +408,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
   def putAtViaSortingBufferSilent(bb: ByteBuffer, idx: Int): Future[Any] = writeLock.synchronized {
     if (idx < currSlot.get) {
       ignoreCount += 1
-      Future.successful()
+      moveTrash(bb, idx)
     } else {
       putAtViaSortingBuffer(bb, idx)
     }
@@ -432,4 +436,60 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
     new FileRangeStoreWithSortingBuffer(toFile, totalSlots)
   }
 
+  private var trash_enabled = false
+  private var trash_channel: FileChannel = _
+  private var trash_async: AsynchronousFileChannel = _
+  private var trash_mmap: MappedByteBuffer = _
+  private var trashPos: MMInt = _
+  def enableTrash(file: File): Unit = {
+    trash_enabled = true
+    val created = !file.exists()
+    val raf: RandomAccessFile = new RandomAccessFile(file, "rw")
+    trash_channel = raf.getChannel
+    trash_async = AsynchronousFileChannel.open(
+      file.toPath,
+      StandardOpenOption.READ,
+      StandardOpenOption.WRITE,
+      StandardOpenOption.CREATE
+    )
+    val trash_mmap = trash_channel.map(FileChannel.MapMode.READ_WRITE, 0, TRASH_RESERVED)
+    trashPos = new MMInt(trash_mmap, 0, if (created) Some(TRASH_RESERVED) else None)
+  }
+  def moveTrash(bb: ByteBuffer, slot: Int): Future[Any] = if (trash_enabled) {
+    val pos = trashPos.get
+    val len = 8 + bb.remaining()
+    trashPos += len
+    val withMeta = bufferPool.allocate(len)
+    withMeta.putInt(len)
+    withMeta.putInt(slot)
+    withMeta.put(bb)
+    withMeta.flip()
+    trash_async.putX(withMeta, pos, _ ⇒ {})
+  } else {
+    Future.successful()
+  }
+  def readTrashMeta: Iterator[TrashMeta] = new Iterator[TrashMeta] {
+    private var pos = TRASH_RESERVED
+    private val bb = ByteBuffer.allocate(8)
+    def hasNext(): Boolean = pos < trashPos.get
+    def next(): TrashMeta = {
+      bb.clear()
+      trash_channel.read(bb, pos)
+      bb.flip()
+      val id = bb.asIntBuffer()
+      // TrashMeta(idx: Int, bufferLen: Int, pos: Int)
+      val len = id.get(0)
+      val res = TrashMeta(id.get(1), len - 8, pos + 8)
+      if (len < 8) pos = Int.MaxValue else pos += len
+      res
+    }
+  }
+  def readTrashBufferAsync(meta: TrashMeta): Future[ByteBuffer] = {
+    val bb = bufferPool.allocate(meta.bufferLen)
+    async.getX(bb, meta.pos)
+  }
+  def readTrashBufferSync(meta: TrashMeta): ByteBuffer = {
+    val bb = bufferPool.allocate(meta.bufferLen)
+    trash_channel.getX(bb, meta.pos)
+  }
 }
