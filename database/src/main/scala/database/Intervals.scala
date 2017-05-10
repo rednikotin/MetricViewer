@@ -5,4 +5,4 @@ trait Intervals {
   class FragmentationException(val msg: String) extends RuntimeException(msg)
 }
 
-object Intervals extends IntervalsV4
+object Intervals extends IntervalsV7

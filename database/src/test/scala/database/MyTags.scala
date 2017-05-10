@@ -42,6 +42,8 @@ object MyTags {
 
   object WeirdCase3 extends Tag("WeirdCase3")
 
+  object WeirdCase4 extends Tag("WeirdCase4")
+
   object PerfCase1 extends Tag("PerfCase1")
 
   object SBFlush extends Tag("SBFlush")

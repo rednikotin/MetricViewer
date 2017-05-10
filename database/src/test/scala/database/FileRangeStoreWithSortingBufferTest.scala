@@ -607,9 +607,11 @@ class FileRangeStoreWithSortingBufferTest
       def testWB(): Double = {
         var cntErr = 0
         val t0 = System.nanoTime()
+
         var row = 0
+        val arrayssize = arrays.size
         data.foreach { i ⇒
-          val array = arrays(rnd.nextInt(arrays.size))
+          val array = arrays(rnd.nextInt(arrayssize))
           val bb = ByteBuffer.wrap(array)
           /*val t01 = System.nanoTime()
           for (i ← 1 to 100) Thread.`yield`()
@@ -645,7 +647,83 @@ class FileRangeStoreWithSortingBufferTest
       }
       println("Go!!!")*/
 
-      for (i ← 1 to 10) test(i)
+      for (i ← 1 to 60) test(i)
+    }
+
+    s"weird case 4" taggedAs (FileRangeStoreWithSortingBufferTest, WeirdCase4) in {
+      val thisS = maxSlot * 5
+      println(s"prepating data for $maxSlot elements")
+      var t0 = System.nanoTime()
+
+      val data = (0 until thisS).grouped(maxSlot / 5).flatMap(rnd.shuffle(_)).toSeq
+
+      var t1 = System.nanoTime()
+      println(s"data generated in ${(t1 - t0) / 1e9} sec")
+
+      //val array = (0 until 32).map(_.toByte).toArray
+      val arrays = (5 to 100).map(x ⇒ (5 to 100).take(x).map(_.toByte).toArray).toList
+
+      t0 = System.nanoTime()
+      System.gc()
+      t1 = System.nanoTime()
+      println(s"System.gc() in ${(t1 - t0) / 1e9} sec")
+
+      t0 = System.nanoTime()
+      val fileTest = new File("data/storeSBVT2006")
+      fileTest.delete()
+      t1 = System.nanoTime()
+      println(s"fileTest.delete in ${(t1 - t0) / 1e9} sec")
+
+      t0 = System.nanoTime()
+      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS, true, FileRangeStoreWithSortingBuffer.SM)
+      t1 = System.nanoTime()
+      println(s"fileStore creating in ${(t1 - t0) / 1e9} sec")
+
+      def testWB(): Double = {
+        var cntErr = 0
+        val t0 = System.nanoTime()
+        val arrayssize = arrays.size
+        var idx = 0
+        data.foreach { i ⇒
+          val array = arrays(rnd.nextInt(arrayssize))
+          val bb = ByteBuffer.wrap(array)
+          /*val t01 = System.nanoTime()
+          for (i ← 1 to 100) Thread.`yield`()
+          val t02 = System.nanoTime()
+          if (i % 1000 == 0) println(s"i=$i, t=${t02 - t01}")*/
+          if (cntErr == 0) {
+            Try(fileStore.putAtViaSortingBufferSilent(bb, i).await()) match {
+              case Success(res) ⇒
+              case Failure(ex) ⇒
+                if (cntErr == 0) ex.printStackTrace()
+                cntErr += 1
+            }
+          }
+          //println(s"*$idx* wm=${fileStore.getReadWatermark}, stats=${fileStore.getCountStats}")//, sb_free_slot=${fileStore.sb_free_slot.mkString("[", ",", "]")}")
+          //println(s"*$idx* wm=${fileStore.getReadWatermark}, stats=${fileStore.getCountStats}, getFreeSpace=${fileStore.sb_free_space.getFreeSpace.mkString("[", ",", "]")}")
+          idx += 1
+          //if (row % 10 == 0) println("*" * 30)
+        }
+        //assert(fileStore.size === (thisS - ...))
+        val t1 = System.nanoTime()
+        t1 - t0
+      }
+
+      def test(i: Int) = {
+        fileStore.resetCounters()
+        fileStore.shrink(0)
+        val t1 = testWB() / 1e6
+        val stats = fileStore.getCountStats
+        println(s"$i. with buffer = $t1, stats=$stats, cnt=${data.size}")
+      }
+
+      /*      for (i ← 10.to(0, -1)) {
+        println("..." + i)
+        Thread.sleep(1000)
+      }
+      println("Go!!!")*/
+
+      for (i ← 1 to 1) test(i)
     }
 
     s"weird case 3" taggedAs (FileRangeStoreWithSortingBufferTest, WeirdCase3) in {
