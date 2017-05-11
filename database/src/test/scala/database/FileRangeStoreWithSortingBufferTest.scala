@@ -498,6 +498,7 @@ class FileRangeStoreWithSortingBufferTest
           }
 
         }).await()
+        assert(cntErr === 0)
         val t1 = System.nanoTime()
         assert(fileStore.size === thisS)
         ((t1 - t0).toDouble / 1e6, cntErr)
@@ -518,6 +519,7 @@ class FileRangeStoreWithSortingBufferTest
               cntErr += 1
           }
         }
+        assert(cntErr === 0)
         val t3 = System.nanoTime()
         assert(fileStore.size === thisS)
         ((t3 - t2).toDouble / 1e6, cntErr)
@@ -629,6 +631,7 @@ class FileRangeStoreWithSortingBufferTest
           //row += 1
           //if (row % 10 == 0) println("*" * 30)
         }
+        assert(cntErr === 0)
         //assert(fileStore.size === (thisS - ...))
         val t1 = System.nanoTime()
         t1 - t0
@@ -678,6 +681,7 @@ class FileRangeStoreWithSortingBufferTest
           }
           idx += 1
         }
+        assert(cntErr === 0)
       }
 
       testWB()
@@ -745,6 +749,7 @@ class FileRangeStoreWithSortingBufferTest
           //row += 1
           //if (row % 10 == 0) println("*" * 30)
         }
+        assert(cntErr === 0)
         assert(fileStore.size === thisS)
         val t1 = System.nanoTime()
         t1 - t0
@@ -830,6 +835,7 @@ class FileRangeStoreWithSortingBufferTest
               cntErr += 1
           }
         }
+        assert(cntErr === 0)
       }
 
       testDirect(0)
@@ -941,6 +947,7 @@ class FileRangeStoreWithSortingBufferTest
             idx += 1
           }
         }
+        assert(cntErr === 0)
         println(idxMax, max)
       }
 

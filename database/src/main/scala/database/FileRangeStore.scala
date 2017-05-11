@@ -16,16 +16,20 @@ import UnsafeUtil._
 // done: sorting buffer
 
 object FileRangeStore {
-  final val TEST_COEFF: Int = 1
   final val STEP_SLOT_SIZE: Int = 4096
-  final val RESERVED_LIMIT: Int = 1048576 * TEST_COEFF
+  final val RESERVED_LIMIT: Int = 2097152
+  final val META_LIMIT: Int = 4096
   final val MAX_POS: Int = Int.MaxValue
   final val MAX_WRITE_QUEUE: Int = 1024
 
-  final val SORTING_BUFFER_DATA_SIZE: Int = 524288 * TEST_COEFF
-  final val SORTING_BUFFER_SLOTS_SIZE: Int = 65536 * TEST_COEFF
+  final val TEMP_AREA_SIZE: Int = 1048576
+  final val TEMP_AREA_FIRST: Int = RESERVED_LIMIT - TEMP_AREA_SIZE
+  final val SORTING_BUFFER_DATA_SIZE: Int = 524288
+  final val SORTING_BUFFER_SLOTS_SIZE: Int = 65536
   final val SORTING_BUFFER_TOTAL_SLOTS: Int = SORTING_BUFFER_SLOTS_SIZE / 4
-  final val SORTING_BUFFER_FIRST_SLOT: Int = RESERVED_LIMIT - SORTING_BUFFER_DATA_SIZE - SORTING_BUFFER_SLOTS_SIZE
+
+  final val SORTING_BUFFER_DATA: Int = TEMP_AREA_FIRST - SORTING_BUFFER_DATA_SIZE
+  final val SORTING_BUFFER_FIRST_SLOT: Int = SORTING_BUFFER_DATA - SORTING_BUFFER_SLOTS_SIZE
   final val SORTING_BUFFER_FIRST_SLOT_LEN: Int = SORTING_BUFFER_FIRST_SLOT - SORTING_BUFFER_SLOTS_SIZE
   final val SORTING_BUFFER_FIRST_SLOT_MAP: Int = SORTING_BUFFER_FIRST_SLOT_LEN - SORTING_BUFFER_SLOTS_SIZE
   final val SORTING_BUFFER_FLUSH_AUX: Int = SORTING_BUFFER_DATA_SIZE / 8
@@ -167,6 +171,7 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
   protected val bufferPool = BufferPool()
   def releaseBuffer(bb: ByteBuffer): Unit = bufferPool.release(bb)
   protected val reserved_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, RESERVED_LIMIT)
+  private val meta_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, META_LIMIT)
   private val slots_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, RESERVED_LIMIT, SLOTS_SIZE)
   private var data_mmap: MappedByteBuffer = _
 
@@ -174,6 +179,7 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
   slots_mmap.load()
 
   def commitReserved(): Unit = reserved_mmap.force()
+  def commitMeta(): Unit = meta_mmap.force()
   def commitSlots(): Unit = slots_mmap.force()
   def commitAll(): Unit = async.force(false)
 

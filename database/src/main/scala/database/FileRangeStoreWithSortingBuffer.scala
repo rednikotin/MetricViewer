@@ -13,6 +13,7 @@ import FileRangeStore._
 import database.FileRangeStoreWithSortingBuffer.{TrashMeta, _}
 
 // todo: log files (rotating), archive?
+// todo: checksum?
 object FileRangeStoreWithSortingBuffer {
   trait SpaceManager {
     def allocated(allocIntervals: Iterable[(Int, Int)]): Unit
@@ -115,7 +116,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
   private val sb_slots_map_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT_MAP, SORTING_BUFFER_SLOTS_SIZE)
   private val sb_slots_len_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT_LEN, SORTING_BUFFER_SLOTS_SIZE)
   private val sb_slots_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT, SORTING_BUFFER_SLOTS_SIZE)
-  private val sb_data_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT + SORTING_BUFFER_SLOTS_SIZE, SORTING_BUFFER_DATA_SIZE)
+  private val sb_data_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_DATA, SORTING_BUFFER_DATA_SIZE)
   def commitSortingBuffer(): Unit = {
     sb_slots_map_mmap.force()
     sb_slots_len_mmap.force()
@@ -136,6 +137,13 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
     case RR ⇒ intervalRR(SORTING_BUFFER_DATA_SIZE)
   }
 
+  private val tmp: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, TEMP_AREA_FIRST, TEMP_AREA_SIZE)
+  def commitTemp(): Unit = {
+    tmp.force()
+  }
+  private val tmpPhase = new MMInt(reserved_mmap, 2, if (initializationRequired) Some(0) else None)
+  private val tmpSize = new MMInt(reserved_mmap, 3, if (initializationRequired) Some(0) else None)
+
   if (!initializationRequired) {
     val allocIntervals = ArrayBuffer[(Int, Int)]()
     for (sbslot ← 0 until SORTING_BUFFER_TOTAL_SLOTS) {
@@ -150,6 +158,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
       }
     }
     sb_free_space.allocated(allocIntervals)
+    if (tmpPhase.get == 1) recoverDefragmentation()
   } else {
     resetSlots()
   }
@@ -173,10 +182,47 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
 
   private def defragmentation(): Unit = {
     val data = sbMap.map { case (slot, sbslot) ⇒ (getsb(sbslot), slot) }
-    // interrupted operation may cause data loss!
-    // todo: use temporary location for data OR implement switching buffers
+    tmp.clear()
+    val sizeCalc = data.map {
+      case (buffer, slot) ⇒
+        val len = 8 + buffer.remaining()
+        tmp.putInt(len)
+        tmp.putInt(slot)
+        tmp.put(buffer)
+        buffer.rewind()
+        len
+    }.sum
+    commitTemp()
+    tmpSize.set(sizeCalc)
+    tmpPhase.set(1)
+    commitMeta()
     resetSlots()
     data.foreach { case (buffer, slot) ⇒ sb_put(buffer, slot) }
+    tmpPhase.set(0)
+    commitMeta()
+    defragmentationCount += 1
+  }
+
+  // todo: test  put thrin after tmpPhase.set(1) above and proceed from failed
+  // point to read all the data (get dferag with writing 1-100-1-100 (i - for big slot number))
+  private def recoverDefragmentation(): Unit = {
+    val data = new Iterator[(ByteBuffer, Int)] {
+      private var pos = TEMP_AREA_FIRST
+      def hasNext(): Boolean = pos < tmpSize.get
+      def next(): (ByteBuffer, Int) = {
+        val len = tmp.getInt(pos)
+        val slot = tmp.getInt(pos + 4)
+        val array = new Array[Byte](len - 8)
+        tmp.position(pos + 8)
+        tmp.get(array)
+        pos += len
+        (ByteBuffer.wrap(array), slot)
+      }
+    }
+    resetSlots()
+    data.foreach { case (buffer, slot) ⇒ sb_put(buffer, slot) }
+    tmpPhase.set(0)
+    commitMeta()
     defragmentationCount += 1
   }
 
