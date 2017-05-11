@@ -125,6 +125,27 @@ class IntervalsTest
       assertThrows[impl.FragmentationException](intervals.allocate(4))
       assert(intervals.allocate(2) === (3, 5))
     }
+
+    "allocated test" taggedAs IntervalsImplTest in {
+      val intervals = new Intervals.IntervalSet(0, 100)
+
+      val i0_3 = intervals.allocate(3)
+      val i3_33 = intervals.allocate(30)
+      val i33_46 = intervals.allocate(13)
+
+      val i46_55 = (46, 55)
+      val i55_57 = (55, 57)
+      val i60_65 = (60, 65)
+      val i65_75 = (65, 75)
+      val i90_100 = (90, 100)
+
+      intervals.allocated(Seq(i46_55, i55_57, i60_65, i65_75, i90_100))
+
+      val i3_ = intervals.allocate(3)
+
+      assert(intervals.getLength === 15)
+      assert(Seq((57, 60), (75, 78)) contains i3_)
+    }
   }
 
 }

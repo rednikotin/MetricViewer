@@ -1,20 +1,21 @@
 package database
 
 import java.io.{File, RandomAccessFile}
-import java.nio.{ByteBuffer, IntBuffer, MappedByteBuffer}
+import java.nio.{ByteBuffer, MappedByteBuffer}
 import java.nio.channels.{AsynchronousFileChannel, FileChannel}
 import java.nio.file.StandardOpenOption
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.Future
 import scala.util._
 import FileRangeStore._
 import database.FileRangeStoreWithSortingBuffer.{TrashMeta, _}
 
+// todo: log files (rotating), archive?
 object FileRangeStoreWithSortingBuffer {
   trait SpaceManager {
-    def allocated(pos: Int, len: Int): Unit
+    def allocated(allocIntervals: Iterable[(Int, Int)]): Unit
     def allocate(len: Int): Int
     def release(pos: Int, len: Int): Unit
     def clear(): Unit
@@ -27,7 +28,7 @@ object FileRangeStoreWithSortingBuffer {
   def intervalSM(size: Int): SpaceManager = {
     new SpaceManager {
       private val intervals = new Intervals.IntervalSet(0, size)
-      def allocated(pos: Int, len: Int): Unit = intervals.allocated(pos, len)
+      def allocated(allocIntervals: Iterable[(Int, Int)]): Unit = intervals.allocated(allocIntervals)
       def allocate(len: Int): Int = try {
         intervals.allocate(len)._1
       } catch {
@@ -53,7 +54,7 @@ object FileRangeStoreWithSortingBuffer {
         curPos += len
         res
       } else throw new NoSpaceLeftException("No Space Left!")
-      def allocated(pos: Int, len: Int): Unit = curPos = curPos.max(pos + len)
+      def allocated(allocIntervals: Iterable[(Int, Int)]): Unit = curPos = curPos.max(allocIntervals.map(_._2).max)
     }
   }
 
@@ -128,7 +129,6 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
   private val sb_slots_len = sb_slots_len_mmap.asIntBuffer()
   private val sb_slots_map = sb_slots_map_mmap.asIntBuffer()
 
-  // /*private*/ val sbMap: mutable.TreeMap[Int, Int] = collection.mutable.TreeMap.empty[Int, Int]
   /*private*/ val sbMap: JavaTreeMap[Int, Int] = new JavaTreeMap[Int, Int]()
   /*private*/ val sb_free_slot: mutable.ArrayStack[Int] = mutable.ArrayStack[Int]()
   /*private*/ val sb_free_space: SpaceManager = spaceManagerType match {
@@ -137,17 +137,19 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
   }
 
   if (!initializationRequired) {
+    val allocIntervals = ArrayBuffer[(Int, Int)]()
     for (sbslot ← 0 until SORTING_BUFFER_TOTAL_SLOTS) {
       val pos = sb_slots.get(sbslot) - 1
       if (pos != -1) {
         val slot = sb_slots_map.get(sbslot)
         val len = sb_slots_len.get(sbslot)
-        sb_free_space.allocated(pos, len)
         sbMap += slot → sbslot
+        allocIntervals += pos → (pos + len)
       } else {
         sb_free_slot.push(sbslot)
       }
     }
+    sb_free_space.allocated(allocIntervals)
   } else {
     resetSlots()
   }
@@ -171,6 +173,8 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
 
   private def defragmentation(): Unit = {
     val data = sbMap.map { case (slot, sbslot) ⇒ (getsb(sbslot), slot) }
+    // interrupted operation may cause data loss!
+    // todo: use temporary location for data OR implement switching buffers
     resetSlots()
     data.foreach { case (buffer, slot) ⇒ sb_put(buffer, slot) }
     defragmentationCount += 1
@@ -427,7 +431,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
     println("*" * 30)
   }
 
-  override def copyTo(toFile: File): FileRangeStore = {
+  override def copyTo(toFile: File): FileRangeStoreWithSortingBuffer = {
     commitAll()
     toFile.delete()
     val toChannel = new RandomAccessFile(toFile, "rw").getChannel
@@ -452,7 +456,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
       StandardOpenOption.WRITE,
       StandardOpenOption.CREATE
     )
-    val trash_mmap = trash_channel.map(FileChannel.MapMode.READ_WRITE, 0, TRASH_RESERVED)
+    trash_mmap = trash_channel.map(FileChannel.MapMode.READ_WRITE, 0, TRASH_RESERVED)
     trashPos = new MMInt(trash_mmap, 0, if (created) Some(TRASH_RESERVED) else None)
   }
   def moveTrash(bb: ByteBuffer, slot: Int): Future[Any] = if (trash_enabled) {
@@ -492,4 +496,6 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
     val bb = bufferPool.allocate(meta.bufferLen)
     trash_channel.getX(bb, meta.pos)
   }
+  // return mutable collection, have to copy to immutable list before return
+  def bufferedSlots: Iterable[Int] = sbMap.keys.toList
 }

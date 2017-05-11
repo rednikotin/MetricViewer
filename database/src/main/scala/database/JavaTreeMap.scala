@@ -27,6 +27,7 @@ class JavaTreeMap[K, V] {
   def isEmpty: Boolean = map.isEmpty
   // returned mutable entries! need to copy before user
   def iterator: Iterator[(K, V)] = map.entrySet().iterator().asScala.map(x ⇒ (x.getKey, x.getValue))
+  def keys: Iterable[K] = map.keySet().asScala
   def values: Iterable[V] = map.values().asScala
   def map[T](f: ((K, V)) ⇒ T): Iterable[T] = new Iterable[T] {
     def iterator: Iterator[T] = outer.iterator.map(f)
