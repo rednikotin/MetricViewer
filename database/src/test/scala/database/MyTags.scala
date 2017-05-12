@@ -58,6 +58,8 @@ object MyTags {
 
   object TrashTest extends Tag("TrashTest")
 
+  object DefragmentationTestInterrupt extends Tag("DefragmentationTestInterrupt")
+
   object CopyAllocatedTest extends Tag("CopyAllocatedTest")
 
 }

@@ -81,9 +81,10 @@ object FileRangeStoreWithSortingBuffer {
   }
 
   case class TrashMeta(idx: Int, bufferLen: Int, pos: Int)
+  case class TestInterruptException() extends RuntimeException
 }
 
-class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Boolean = false, spaceManagerType: SpaceManagerType = SM) extends FileRangeStore(file, totalSlots, withCrean) {
+class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Boolean = false, spaceManagerType: SpaceManagerType = SM) extends FileRangeStore(file, totalSlots, withClean) {
 
   /*
        Small file structure:
@@ -141,8 +142,8 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
   def commitTemp(): Unit = {
     tmp.force()
   }
-  private val tmpPhase = new MMInt(reserved_mmap, 2, if (initializationRequired) Some(0) else None)
-  private val tmpSize = new MMInt(reserved_mmap, 3, if (initializationRequired) Some(0) else None)
+  private val tmpPhase = new MMInt(reserved_mmap, 8, if (initializationRequired) Some(0) else None)
+  private val tmpSize = new MMInt(reserved_mmap, 12, if (initializationRequired) Some(0) else None)
 
   if (!initializationRequired) {
     val allocIntervals = ArrayBuffer[(Int, Int)]()
@@ -180,7 +181,10 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
     ByteBuffer.wrap(array)
   }
 
-  private def defragmentation(): Unit = {
+  private var testInterrupt = false
+  def enableTestInterrupt(): Unit = testInterrupt = true
+
+  private def defragmentation(inBuffer: ByteBuffer, inSlot: Int): Unit = {
     val data = sbMap.map { case (slot, sbslot) ⇒ (getsb(sbslot), slot) }
     tmp.clear()
     val sizeCalc = data.map {
@@ -192,11 +196,21 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
         buffer.rewind()
         len
     }.sum
+
+    val inLen = 8 + inBuffer.remaining()
+    tmp.putInt(inLen)
+    tmp.putInt(inSlot)
+    tmp.put(inBuffer)
+    inBuffer.rewind()
+
     commitTemp()
-    tmpSize.set(sizeCalc)
+    tmpSize.set(sizeCalc + inLen)
     tmpPhase.set(1)
     commitMeta()
     resetSlots()
+
+    if (testInterrupt) throw new TestInterruptException
+
     data.foreach { case (buffer, slot) ⇒ sb_put(buffer, slot) }
     tmpPhase.set(0)
     commitMeta()
@@ -207,7 +221,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
   // point to read all the data (get dferag with writing 1-100-1-100 (i - for big slot number))
   private def recoverDefragmentation(): Unit = {
     val data = new Iterator[(ByteBuffer, Int)] {
-      private var pos = TEMP_AREA_FIRST
+      private var pos = 0
       def hasNext(): Boolean = pos < tmpSize.get
       def next(): (ByteBuffer, Int) = {
         val len = tmp.getInt(pos)
@@ -354,55 +368,6 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
     }
   }
 
-  /*  private def putAtForce(buffer: ByteBuffer, slot: Int): Unit = {
-    var retries = 0
-    var inserted = false
-    while (!inserted) {
-      try {
-        putAtSync(buffer, slot)
-        inserted = true
-      } catch {
-        case ex: SlotAlreadyUsedException ⇒
-          logger.info(s"got SlotAlreadyUsedException(${ex.msg}) while flushing sorting buffer slot=$slot")
-        case ex: WriteQueueOverflowException ⇒
-          retries += 1
-          if (retries > 10) {
-            throw new WriteQueueOverflowException(s"Unable to flush buffer, getting exception > 10 times, ${ex.msg}")
-          }
-          Thread.sleep(10)
-      }
-    }
-  }
-
-  private def flushPrefix(): Unit = {
-    val prefix = ArrayBuffer.empty[(Int, Int)]
-    var isPrefix = true
-    val iter = sbMap.iterator
-    while (isPrefix && iter.hasNext) {
-      val (slot, sbslot) = iter.next()
-      if (slot == currSlot.get) {
-        val buffer = getsb(sbslot)
-        putAtForce(buffer, slot)
-        prefix += ((slot, sbslot))
-      } else {
-        isPrefix = false
-      }
-    }
-    prefix.foreach {
-      case (slot, sbslot) ⇒
-        val pos = sb_slots.get(sbslot)
-        val len = sb_slots_len.get(sbslot)
-        sbMap -= slot
-        sb_free_space.release(pos, len)
-        sb_slots.put(sbslot, -1)
-    }
-  }
-
-  private def flush(): Unit = {
-    for ((slot, sbslot) ← sbMap) putAtForce(getsb(sbslot), slot)
-    resetSlots()
-  }*/
-
   private def sb_put(buffer: ByteBuffer, slot: Int): Future[Any] = {
     if (sb_free_slot.isEmpty) {
       flushNoSlotCount += 1
@@ -411,7 +376,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withCrean: Bo
       val len = buffer.remaining()
       Try(sb_free_space.allocate(len)).recoverWith {
         case _: FragmentationException ⇒
-          defragmentation()
+          defragmentation(buffer, slot)
           Try(sb_free_space.allocate(len))
       } match {
         case Success(pos) ⇒
