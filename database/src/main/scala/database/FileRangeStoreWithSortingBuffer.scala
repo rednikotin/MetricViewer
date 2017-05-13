@@ -84,7 +84,7 @@ object FileRangeStoreWithSortingBuffer {
   case class TestInterruptException() extends RuntimeException
 }
 
-class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Boolean = false, spaceManagerType: SpaceManagerType = SM, keepTime: Int = 30000) extends FileRangeStore(file, totalSlots, withClean) {
+class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Boolean = false, spaceManagerType: SpaceManagerType = SM) extends FileRangeStore(file, totalSlots, withClean) {
 
   /*
        Small file structure:
@@ -382,7 +382,6 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
         case Success(pos) ⇒
           val sbslot = sb_free_slot.pop()
           sbMap += slot → sbslot
-          if (tmspFlushEbabled) tmspMap += slot -> System.currentTimeMillis()
           sb_slots.put(sbslot, pos + 1)
           sb_slots_len.put(sbslot, len)
           sb_slots_map.put(sbslot, slot)
