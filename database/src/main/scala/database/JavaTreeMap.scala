@@ -23,6 +23,7 @@ class JavaTreeMap[K, V] {
       Some((head.getKey, head.getValue))
     }
   }
+  def get(k: K): V = map.get(k)
   def lastKey: K = map.lastKey()
   def isEmpty: Boolean = map.isEmpty
   // returned mutable entries! need to copy before user
