@@ -12,15 +12,15 @@ trait IntervalsV7 extends Intervals {
     private val intervalsRL = new java.util.HashMap[Int, Int]()
     private var firstNode: Node = _
     private var lastNode: Node = _
-    private var lucky: Node = _
+    //private var lucky: Node = _
     private def putNewLR(left: Int, right: Int) = {
       if (lastNode == null) {
         lastNode = Node(null, null, left, right)
         firstNode = lastNode
-        lucky = lastNode
+        //lucky = lastNode
       } else {
         val node = Node(lastNode, null, left, right)
-        if (lucky.length < node.length) lucky = node
+        //if (lucky.length < node.length) lucky = node
         lastNode.next = node
         lastNode = node
       }
@@ -29,12 +29,12 @@ trait IntervalsV7 extends Intervals {
     private def updateLR(left: Int, right: Int) = {
       val node = intervalsLR.get(left)
       node.right = right
-      if (lucky.length < node.length) lucky = node
+      //if (lucky.length < node.length) lucky = node
     }
     private def moveLR(oldKey: Int, oldNode: Node, left: Int) = {
       intervalsLR.remove(oldKey)
       oldNode.left = left
-      if (lucky.length < oldNode.length) lucky = oldNode
+      //if (lucky.length < oldNode.length) lucky = oldNode
       intervalsLR.put(left, oldNode)
     }
     private def removeLR(key: Int, node: Node) = {
@@ -43,9 +43,9 @@ trait IntervalsV7 extends Intervals {
       if (node1 != null) node1.next = node2 else firstNode = node2
       if (node2 != null) node2.prev = node1 else lastNode = node1
 
-      if (lucky == node) if (node1 != null) lucky = node1 else lucky = node2
-      if (node1 != null && lucky.length < node1.length) lucky = node1
-      if (node2 != null && lucky.length < node2.length) lucky = node2
+      //if (lucky == node) if (node1 != null) lucky = node1 else lucky = node2
+      //if (node1 != null && lucky.length < node1.length) lucky = node1
+      //if (node2 != null && lucky.length < node2.length) lucky = node2
 
       intervalsLR.remove(key)
     }
@@ -136,17 +136,17 @@ trait IntervalsV7 extends Intervals {
         res
       }
 
-      if (lucky != null && lucky.length >= size) {
-        allocFrom(lucky)
-      } else {
-        backIterator.find(node ⇒ node.right - node.left >= size) match {
-          case Some(node) ⇒
-            allocFrom(node)
-          case None ⇒
-            //if (isDebug) println(s"length=$length, size=$size, fragmentation, getFreeSpace=${getIntervals.mkString("[", ",", "]")}")
-            throw new FragmentationException(s"Unable to allocate $size because of fragmentation")
-        }
+      //if (lucky != null && lucky.length >= size) {
+      //  allocFrom(lucky)
+      //} else {
+      backIterator.find(node ⇒ node.right - node.left >= size) match {
+        case Some(node) ⇒
+          allocFrom(node)
+        case None ⇒
+          //if (isDebug) println(s"length=$length, size=$size, fragmentation, getFreeSpace=${getIntervals.mkString("[", ",", "]")}")
+          throw new FragmentationException(s"Unable to allocate $size because of fragmentation")
       }
+      //}
     }
 
     def clear(): Unit = {
