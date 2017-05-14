@@ -692,6 +692,8 @@ class FileRangeStoreWithSortingBufferTest
       println(s"prepating data for $maxSlot elements")
       var t0 = System.nanoTime()
 
+      rnd.setSeed(1)
+
       val data = (0 until thisS).grouped(maxSlot - 100).flatMap(rnd.shuffle(_)).toSeq
 
       /* val data0 = IntBuffer.wrap((0 until thisS).toArray)
@@ -751,6 +753,11 @@ class FileRangeStoreWithSortingBufferTest
         }
         assert(cntErr === 0)
         assert(fileStore.size === thisS)
+
+        // to test case when defragmentation just drop content of buffer
+        val zeros = (0 until fileStore.size).count(i ⇒ fileStore.get(i).await().remaining() == 0)
+        assert(zeros === fileStore.getCountStats.ignoreCount)
+
         val t1 = System.nanoTime()
         t1 - t0
       }
@@ -920,6 +927,7 @@ class FileRangeStoreWithSortingBufferTest
       val fileTest = new File("data/storeSBVT2009-S")
       fileTest.delete()
       val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS, true, FileRangeStoreWithSortingBuffer.SM)
+
       def testWB(): Unit = {
         var cntErr = 0
         val arrayssize = arrays.size
@@ -964,6 +972,8 @@ class FileRangeStoreWithSortingBufferTest
     }
 
     "testing defragmentation recover" taggedAs (FileRangeStoreWithSortingBufferTest, DefragmentationTestInterrupt) in {
+      rnd.setSeed(1)
+
       val fileTest = new File("data/storeSBDFT0001")
       fileTest.delete()
       // magic number to maximize fragmentation
@@ -994,7 +1004,7 @@ class FileRangeStoreWithSortingBufferTest
           if (cntErr == 0 && !interrupted) {
             val array = arrays(rnd.nextInt(arrayssize))
             val bb = ByteBuffer.wrap(array)
-            if (idx == 65367) {
+            if (idx == 32652) {
               println(s"getFreeSpace.sum=${fileStore.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum}")
               println(s"getFreeSpace=${fileStore.sb_free_space.getFreeSpace.toList}")
               println(s"bufferedSlots=${fileStore.bufferedSlots.size}")
@@ -1024,21 +1034,35 @@ class FileRangeStoreWithSortingBufferTest
 
       testWB()
 
-      println("fileStore.getCountStats", fileStore.getCountStats)
-      println("fileStore.bufferedSlots.size", fileStore.bufferedSlots.size)
-      println("getFreeSpace.size", fileStore.sb_free_space.getFreeSpace.toList)
+      println("fs fileStore.getCountStats", fileStore.getCountStats)
+
+      println(s"fs getFreeSpace.sum=${fileStore.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum}")
+      println(s"fs getFreeSpace=${fileStore.sb_free_space.getFreeSpace.toList}")
+      println(s"fs bufferedSlots=${fileStore.bufferedSlots.size}")
 
       val fileTestT = new File("storeSBDFT0001-T")
       fileTestT.delete()
       val cp = fileStore.copyTo(fileTestT)
+
+      println(s"cp getFreeSpace.sum=${cp.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum}")
+      println(s"cp getFreeSpace=${cp.sb_free_space.getFreeSpace.toList}")
+      println(s"cp bufferedSlots=${cp.bufferedSlots.size}")
+
       assert(cp.bufferedSlots.size === (slots0 + 1))
       assert(cp.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum === (space0 - elemSzv))
       assert(cp.sb_free_space.getFreeSpace.size === 1)
       assert(cp.size === fileStore.size)
-      println(s"getFreeSpace.sum=${cp.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum}")
-      println(s"getFreeSpace=${cp.sb_free_space.getFreeSpace.toList}")
-      println(s"bufferedSlots=${cp.bufferedSlots.size}")
     }
 
+    "SortedIntMapA test" taggedAs SortedStructTest in {
+      import database.SortedIntMapA
+      val xxx = new SortedIntMapA[Int](-1)
+      for (i ← 1 to 100) xxx += i → i
+      xxx -= 1
+      xxx -= 2
+      xxx -= 5
+      xxx -= 6
+      println(xxx.iterator.toList)
+    }
   }
 }

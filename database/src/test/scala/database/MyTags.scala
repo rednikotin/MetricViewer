@@ -62,4 +62,6 @@ object MyTags {
 
   object CopyAllocatedTest extends Tag("CopyAllocatedTest")
 
+  object SortedStructTest extends Tag("SortedStructTest")
+
 }

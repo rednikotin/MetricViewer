@@ -14,6 +14,10 @@ import database.FileRangeStoreWithSortingBuffer.{TrashMeta, _}
 
 // todo: log files (rotating), archive?
 // todo: checksum?
+// todo: time based flushing
+// todo: in memory SB
+// todo: hot backup
+// todo: recovery after failure
 object FileRangeStoreWithSortingBuffer {
   trait SpaceManager {
     def allocated(allocIntervals: Iterable[(Int, Int)]): Unit
@@ -69,7 +73,8 @@ object FileRangeStoreWithSortingBuffer {
       defragmentationCount: Int,
       flushPrefixCount:     Int,
       ignoreCount:          Int,
-      tooBig:               Int
+      tooBig:               Int,
+      switched:             Int
   ) {
     override def toString: String =
       s"{flushNoSpaceCount=$flushNoSpaceCount, " +
@@ -77,7 +82,8 @@ object FileRangeStoreWithSortingBuffer {
         s"defragmentationCount=$defragmentationCount, " +
         s"flushPrefixCount=$flushPrefixCount, " +
         s"ignoreCount=$ignoreCount, " +
-        s"tooBig=$tooBig}"
+        s"tooBig=$tooBig, " +
+        s"switched=$switched}"
   }
 
   case class TrashMeta(idx: Int, bufferLen: Int, pos: Int)
@@ -111,8 +117,9 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
     flushPrefixCount = 0
     ignoreCount = 0
     tooBig = 0
+    sbMap.resetStats()
   }
-  def getCountStats: CountStats = CountStats(flushNoSpaceCount, flushNoSlotCount, defragmentationCount, flushPrefixCount, ignoreCount, tooBig)
+  def getCountStats: CountStats = CountStats(flushNoSpaceCount, flushNoSlotCount, defragmentationCount, flushPrefixCount, ignoreCount, tooBig, sbMap.getSwitched)
 
   private val sb_slots_map_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT_MAP, SORTING_BUFFER_SLOTS_SIZE)
   private val sb_slots_len_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT_LEN, SORTING_BUFFER_SLOTS_SIZE)
@@ -131,7 +138,8 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
   private val sb_slots_len = sb_slots_len_mmap.asIntBuffer()
   private val sb_slots_map = sb_slots_map_mmap.asIntBuffer()
 
-  /*private*/ val sbMap: JavaTreeMap[Int, Int] = new JavaTreeMap[Int, Int]()
+  /*private*/ val sbMap: SortedIntMapX[Int] = new SortedIntMapX[Int](-2)
+  ///*private*/ val sbMap: SortedIntMap[Int] = new SortedIntMapJ[Int]()
   /*private*/ val sb_free_slot: mutable.ArrayStack[Int] = mutable.ArrayStack[Int]()
   /*private*/ val sb_free_space: SpaceManager = spaceManagerType match {
     case SM ⇒ intervalSM(SORTING_BUFFER_DATA_SIZE)
@@ -185,7 +193,8 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
   def enableTestInterrupt(): Unit = testInterrupt = true
 
   private def defragmentation(inBuffer: ByteBuffer, inSlot: Int): Unit = {
-    val data = sbMap.map { case (slot, sbslot) ⇒ (getsb(sbslot), slot) }
+    // .toList - to take copy of iterator, otherwise it's mutable and will be empty at "data.foreach"
+    val data = sbMap.map { case (slot, sbslot) ⇒ (getsb(sbslot), slot) }.toList
     tmp.clear()
     val sizeCalc = data.map {
       case (buffer, slot) ⇒
@@ -217,8 +226,6 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
     defragmentationCount += 1
   }
 
-  // todo: test  put thrin after tmpPhase.set(1) above and proceed from failed
-  // point to read all the data (get dferag with writing 1-100-1-100 (i - for big slot number))
   private def recoverDefragmentation(): Unit = {
     val data = new Iterator[(ByteBuffer, Int)] {
       private var pos = 0
