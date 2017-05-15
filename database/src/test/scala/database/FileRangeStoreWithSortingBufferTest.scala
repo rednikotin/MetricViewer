@@ -978,7 +978,7 @@ class FileRangeStoreWithSortingBufferTest
       fileTest.delete()
       // magic number to maximize fragmentation
       val magic1 = 16
-      val magic2 = 65367 + 10
+      val magic2 = 40000
       val magic3 = 62
       val thisS = maxSlot * magic1
       var t0 = System.nanoTime()
@@ -1004,14 +1004,10 @@ class FileRangeStoreWithSortingBufferTest
           if (cntErr == 0 && !interrupted) {
             val array = arrays(rnd.nextInt(arrayssize))
             val bb = ByteBuffer.wrap(array)
-            if (idx == 32652) {
-              println(s"getFreeSpace.sum=${fileStore.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum}")
-              println(s"getFreeSpace=${fileStore.sb_free_space.getFreeSpace.toList}")
-              println(s"bufferedSlots=${fileStore.bufferedSlots.size}")
-              elemSzv = bb.remaining()
-              space0 = fileStore.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum
-              slots0 = fileStore.bufferedSlots.size
-            }
+
+            elemSzv = bb.remaining()
+            space0 = fileStore.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum
+            slots0 = fileStore.bufferedSlots.size
 
             Try(fileStore.putAtViaSortingBufferSilent(bb, i).await()) match {
               case Success(res) ⇒
@@ -1034,18 +1030,18 @@ class FileRangeStoreWithSortingBufferTest
 
       testWB()
 
-      println("fs fileStore.getCountStats", fileStore.getCountStats)
-
+      println(s"fs fileStore.getCountStats=${fileStore.getCountStats}")
       println(s"fs getFreeSpace.sum=${fileStore.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum}")
-      println(s"fs getFreeSpace=${fileStore.sb_free_space.getFreeSpace.toList}")
+      //println(s"fs getFreeSpace=${fileStore.sb_free_space.getFreeSpace.toList}")
       println(s"fs bufferedSlots=${fileStore.bufferedSlots.size}")
 
       val fileTestT = new File("storeSBDFT0001-T")
       fileTestT.delete()
       val cp = fileStore.copyTo(fileTestT)
 
+      println(s"cp fileStore.getCountStats=${cp.getCountStats}")
       println(s"cp getFreeSpace.sum=${cp.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum}")
-      println(s"cp getFreeSpace=${cp.sb_free_space.getFreeSpace.toList}")
+      //println(s"cp getFreeSpace=${cp.sb_free_space.getFreeSpace.toList}")
       println(s"cp bufferedSlots=${cp.bufferedSlots.size}")
 
       assert(cp.bufferedSlots.size === (slots0 + 1))

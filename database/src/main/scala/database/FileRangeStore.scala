@@ -17,14 +17,14 @@ import UnsafeUtil._
 
 object FileRangeStore {
   final val STEP_SLOT_SIZE: Int = 4096
-  final val RESERVED_LIMIT: Int = 2097152 * 8
+  final val RESERVED_LIMIT: Int = 2097152
   final val META_LIMIT: Int = 4096
   final val MAX_POS: Int = Int.MaxValue
   final val MAX_WRITE_QUEUE: Int = 1024
 
-  final val TEMP_AREA_SIZE: Int = 1048576 * 8
+  final val TEMP_AREA_SIZE: Int = 1048576
   final val TEMP_AREA_FIRST: Int = RESERVED_LIMIT - TEMP_AREA_SIZE
-  final val SORTING_BUFFER_DATA_SIZE: Int = 524288 * 8
+  final val SORTING_BUFFER_DATA_SIZE: Int = 524288
   final val SORTING_BUFFER_SLOTS_SIZE: Int = 65536
   final val SORTING_BUFFER_TOTAL_SLOTS: Int = SORTING_BUFFER_SLOTS_SIZE / 4
 
