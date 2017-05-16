@@ -14,6 +14,8 @@ import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
 import MyTags._
 
+import scala.collection.mutable.ArrayBuffer
+
 class FileRangeStoreConcurrencyTest
     extends TestKit(ActorSystem("FileRangeStoreConcurrencyTest"))
     with DefaultTimeout
@@ -451,7 +453,7 @@ class FileRangeStoreConcurrencyTest
               bb0.asIntBuffer().put(0, startN + j)
               bb.put(bb0)
             }
-            val offsets = (1 to buffs).map(_ * sz).toArray
+            val offsets = (1 to buffs).map(_ * sz).to[ArrayBuffer]
             bb.flip()
             val res = fileStore.putRangeAtAsync(bb, offsets, startN)
             //println(s"i=$i, cap=$cap, buffs=$buffs, startN=$startN, offsets=${offsets.toSeq}, res=$res")
@@ -848,7 +850,7 @@ class FileRangeStoreConcurrencyTest
               bb0.asIntBuffer().put(0, startN + j)
               bb.put(bb0)
             }
-            val offsets = (1 to buffs).map(_ * sz).toArray
+            val offsets = (1 to buffs).map(_ * sz).to[ArrayBuffer]
             bb.flip()
             val res = fileStore.putRangeAtFAsync(bb, offsets, startN)
             //println(s"i=$i, cap=$cap, buffs=$buffs, startN=$startN, offsets=${offsets.toSeq}, res=$res")

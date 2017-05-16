@@ -4,13 +4,12 @@ import java.io.{File, RandomAccessFile}
 import java.nio.{ByteBuffer, MappedByteBuffer}
 import java.nio.channels.{AsynchronousFileChannel, FileChannel}
 import java.nio.file.StandardOpenOption
-
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.Future
 import scala.util._
 import FileRangeStore._
-import database.FileRangeStoreWithSortingBuffer.{TrashMeta, _}
+import FileRangeStoreWithSortingBuffer._
 
 // todo: log files (rotating), archive?
 // todo: checksum?
@@ -85,9 +84,6 @@ object FileRangeStoreWithSortingBuffer {
         s"tooBig=$tooBig, " +
         s"switched=$switched}"
   }
-
-  case class TrashMeta(idx: Int, bufferLen: Int, pos: Int)
-  case class TestInterruptException() extends RuntimeException
 }
 
 class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Boolean = false, spaceManagerType: SpaceManagerType = SM) extends FileRangeStore(file, totalSlots, withClean) {
@@ -247,7 +243,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
     defragmentationCount += 1
   }
 
-  private def putRangeAtForce(buffer: ByteBuffer, offsets: Array[Int], slot: Int): Unit = {
+  private def putRangeAtForce(buffer: ByteBuffer, offsets: ArrayBuffer[Int], slot: Int): Unit = {
     var retries = 0
     var inserted = false
     while (!inserted) {
@@ -257,6 +253,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
       } catch {
         case ex: SlotAlreadyUsedException ⇒
           logger.info(s"got SlotAlreadyUsedException(${ex.msg}) while flushing sorting buffer slot=$slot")
+          inserted = true
         case ex: WriteQueueOverflowException ⇒
           retries += 1
           if (retries > 10) {
@@ -296,7 +293,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
       }
     }
     flushingBuffer.flip()
-    putRangeAtForce(flushingBuffer, offsets.toArray, cs)
+    putRangeAtForce(flushingBuffer, offsets, cs)
     flushingBuffer.clear()
     prefix.foreach {
       case (slot, sbslot) ⇒
@@ -342,7 +339,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
         if (isTooBig) {
           flushingBuffer.flip()
           if (flushingBuffer.hasRemaining) {
-            putRangeAtForce(flushingBuffer, offsets.toArray, cs)
+            putRangeAtForce(flushingBuffer, offsets, cs)
           }
           putAtSync(buffer, slot)
           flushingBuffer.clear()
@@ -360,7 +357,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
     }
     flushingBuffer.flip()
     if (flushingBuffer.hasRemaining) {
-      putRangeAtForce(flushingBuffer, offsets.toArray, cs)
+      putRangeAtForce(flushingBuffer, offsets, cs)
     }
     flushingBuffer.clear()
     resetSlots()

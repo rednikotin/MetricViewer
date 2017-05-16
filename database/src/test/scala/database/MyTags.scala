@@ -30,11 +30,15 @@ object MyTags {
 
   object FileRangeStoreWithSortingBufferTest extends Tag("FileRangeStoreWithSortingBufferTest")
 
+  object FileRangeStoreMSBTest extends Tag("FileRangeStoreMSBTest")
+
   object BufferPoolConcurrentTest extends Tag("BufferPoolConcurrentTest")
 
   object ConcurencyAlgAllTest extends Tag("ConcurencyAlgAllTest")
 
   object HeavyTemporaryTest extends Tag("HeavyTemporaryTest")
+
+  object HeavyTemporarySMBTest extends Tag("HeavyTemporarySMBTest")
 
   object WeirdCase1 extends Tag("WeirdCase1")
 
@@ -63,5 +67,11 @@ object MyTags {
   object CopyAllocatedTest extends Tag("CopyAllocatedTest")
 
   object SortedStructTest extends Tag("SortedStructTest")
+
+  object WeirdSMB1 extends Tag("WeirdSMB1")
+
+  object WeirdSMB2 extends Tag("WeirdSMB2")
+
+  object WeirdSMB3 extends Tag("WeirdSMB3")
 
 }

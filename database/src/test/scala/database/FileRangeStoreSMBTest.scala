@@ -2,21 +2,19 @@ package database
 
 import java.io.{File, RandomAccessFile}
 import java.nio.{ByteBuffer, IntBuffer}
-
-import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
+import org.scalatest.{BeforeAndAfterAll, Matchers, Tag, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
 import BufferUtil._
 import database.FileRangeStore._
-
 import scala.concurrent.Future
 import MyTags._
 import database.FileRangeStore.TrashMeta
 
 import scala.util.{Failure, Random, Success, Try}
 
-class FileRangeStoreWithSortingBufferTest
-    extends TestKit(ActorSystem("FileRangeStoreWithSortingBufferV2Test"))
+class FileRangeStoreSMBTest
+    extends TestKit(ActorSystem("FileRangeStoreSMBTest"))
     with DefaultTimeout
     with WordSpecLike
     with Matchers
@@ -47,21 +45,17 @@ class FileRangeStoreWithSortingBufferTest
 
   def rewindBBs(): Unit = buffers.foreach(_.rewind())
 
-  "FileRangeStoreWithSortingBufferV2Test tests" must {
-    "inserting random shuffled" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSBV2001")
+  "FileRangeStoreMSBTest tests" must {
+    "inserting random shuffled" taggedAs (FileRangeStoreMSBTest, WeirdSMB3) in {
+      val fileTest = new File("data/storeSBV2001-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * slots, 500000)
 
       rewindBBs()
       shuffleBuffers.foreach {
         case (bb, slot) ⇒
           fileStore.putAtViaSortingBuffer(bb, slot)
-        //println(" -> ", slot, bb.remaining(), bb.toSeq.mkString("[", ", ", "]"))
-        //fileStore.print()
       }
-
-      //fileStore.print()
 
       rewindBBs()
 
@@ -81,10 +75,10 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "copy test" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSBV2001-source")
+    "copy test" taggedAs FileRangeStoreMSBTest in {
+      val fileTest = new File("data/storeSBV2001-source-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * slots, 5000)
 
       rewindBBs()
       shuffleBuffers.foreach {
@@ -96,7 +90,7 @@ class FileRangeStoreWithSortingBufferTest
 
       //fileStore.print()
 
-      val fileStore2 = fileStore.copyTo(new File("data/storeSBV2001-copy"))
+      val fileStore2 = fileStore.copyTo(new File("data/storeSBV2001-copy-SMB"))
 
       rewindBBs()
 
@@ -116,10 +110,10 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "inserting random shuffled without filterSlot" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSBV2002")
+    "inserting random shuffled without filterSlot" taggedAs FileRangeStoreMSBTest in {
+      val fileTest = new File("data/storeSBV2002-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * slots, 5000)
 
       rewindBBs()
       shuffleBuffers.filter(_._2 != filterSlot).foreach {
@@ -162,10 +156,10 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "inserting random shuffled without 0 slot" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSBV2003")
+    "inserting random shuffled without 0 slot" taggedAs FileRangeStoreMSBTest in {
+      val fileTest = new File("data/storeSBV2003-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * slots, 5000)
 
       rewindBBs()
       shuffleBuffers.filter(_._2 != 0).foreach {
@@ -196,10 +190,10 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "inserting random shuffled async" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSBV2004")
+    "inserting random shuffled async" taggedAs FileRangeStoreMSBTest in {
+      val fileTest = new File("data/storeSBV2004-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * slots, 5000)
 
       rewindBBs()
       Future.sequence(shuffleBuffers.map {
@@ -222,16 +216,16 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "flushing and last put cases" taggedAs (FileRangeStoreWithSortingBufferTest, SBFlush) in {
+    "flushing and last put cases" taggedAs (FileRangeStoreMSBTest, SBFlush) in {
       val sb_slots = SORTING_BUFFER_TOTAL_SLOTS
       val sb_size = SORTING_BUFFER_DATA_SIZE
       val sb_aux = SORTING_BUFFER_FLUSH_AUX
 
       //println(s"sb_slots=$sb_slots, sb_size=$sb_size, sd_aux=$sb_aux")
 
-      val fileTest = new File("data/storeSBV2014")
+      val fileTest = new File("data/storeSBV2014-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * slots, 50)
 
       {
         // insert 10(small), 20(big), 15(small)
@@ -241,9 +235,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb2, 20).await()
         val bb3 = ByteBuffer.wrap(new Array[Byte](10))
         fileStore.putAtViaSortingBuffer(bb3, 15).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 21)
         assert(fileStore.get(15).await().length === 10)
-        assert(fileStore.getCountStats.tooBig === 0)
         fileStore.shrink(0)
         fileStore.resetCounters()
 
@@ -254,9 +249,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb21, 20).await()
         val bb31 = ByteBuffer.wrap(new Array[Byte](sb_aux - 1))
         fileStore.putAtViaSortingBuffer(bb31, 15).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 21)
         assert(fileStore.get(15).await().length === (sb_aux - 1))
-        assert(fileStore.getCountStats.tooBig === 0)
         fileStore.shrink(0)
         fileStore.resetCounters()
 
@@ -267,9 +263,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb5, 20).await()
         val bb6 = ByteBuffer.wrap(new Array[Byte](sb_aux))
         fileStore.putAtViaSortingBuffer(bb6, 15).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 21)
         assert(fileStore.get(15).await().length === sb_aux)
-        assert(fileStore.getCountStats.tooBig === 0)
         fileStore.shrink(0)
         fileStore.resetCounters()
 
@@ -280,9 +277,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb8, 20).await()
         val bb9 = ByteBuffer.wrap(new Array[Byte](sb_aux + 1))
         fileStore.putAtViaSortingBuffer(bb9, 15).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 21)
         assert(fileStore.get(15).await().length === (sb_aux + 1))
-        assert(fileStore.getCountStats.tooBig === 1)
         fileStore.shrink(0)
         fileStore.resetCounters()
       }
@@ -295,8 +293,9 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb32, 20).await()
         val bb33 = ByteBuffer.wrap(new Array[Byte](10))
         fileStore.putAtViaSortingBuffer(bb33, 25).await()
-        assert(fileStore.size === 21)
-        assert(fileStore.getCountStats.tooBig === 0)
+        Thread.sleep(100)
+        fileStore.flushObsolete()
+        assert(fileStore.size === 26)
         fileStore.shrink(0)
         fileStore.resetCounters()
 
@@ -307,8 +306,9 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb621, 20).await()
         val bb631 = ByteBuffer.wrap(new Array[Byte](sb_aux - 1))
         fileStore.putAtViaSortingBuffer(bb631, 25).await()
-        assert(fileStore.size === 21)
-        assert(fileStore.getCountStats.tooBig === 0)
+        Thread.sleep(100)
+        fileStore.flushObsolete()
+        assert(fileStore.size === 26)
         fileStore.shrink(0)
         fileStore.resetCounters()
 
@@ -319,8 +319,9 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb65, 20).await()
         val bb66 = ByteBuffer.wrap(new Array[Byte](sb_aux))
         fileStore.putAtViaSortingBuffer(bb66, 25).await()
-        assert(fileStore.size === 21)
-        assert(fileStore.getCountStats.tooBig === 0)
+        Thread.sleep(100)
+        fileStore.flushObsolete()
+        assert(fileStore.size === 26)
         fileStore.shrink(0)
         fileStore.resetCounters()
 
@@ -331,8 +332,9 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb68, 20).await()
         val bb69 = ByteBuffer.wrap(new Array[Byte](sb_aux + 1))
         fileStore.putAtViaSortingBuffer(bb69, 25).await()
-        assert(fileStore.size === 21)
-        assert(fileStore.getCountStats.tooBig === 1)
+        Thread.sleep(100)
+        fileStore.flushObsolete()
+        assert(fileStore.size === 26)
         fileStore.shrink(0)
         fileStore.resetCounters()
       }
@@ -345,9 +347,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb32, 20).await()
         val bb33 = ByteBuffer.wrap(new Array[Byte](10))
         fileStore.putAtViaSortingBuffer(bb33, 21).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 22)
         assert(fileStore.get(21).await().length === 10)
-        assert(fileStore.getCountStats.tooBig === 0)
         fileStore.shrink(0)
         fileStore.resetCounters()
 
@@ -358,9 +361,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb621, 20).await()
         val bb631 = ByteBuffer.wrap(new Array[Byte](sb_aux - 1))
         fileStore.putAtViaSortingBuffer(bb631, 21).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 22)
         assert(fileStore.get(21).await().length === (sb_aux - 1))
-        assert(fileStore.getCountStats.tooBig === 0)
         fileStore.shrink(0)
         fileStore.resetCounters()
 
@@ -371,9 +375,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb65, 20).await()
         val bb66 = ByteBuffer.wrap(new Array[Byte](sb_aux))
         fileStore.putAtViaSortingBuffer(bb66, 21).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 22)
         assert(fileStore.get(21).await().length === sb_aux)
-        assert(fileStore.getCountStats.tooBig === 0)
         fileStore.shrink(0)
         fileStore.resetCounters()
 
@@ -384,9 +389,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb68, 20).await()
         val bb69 = ByteBuffer.wrap(new Array[Byte](sb_aux + 1))
         fileStore.putAtViaSortingBuffer(bb69, 21).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 22)
         assert(fileStore.get(21).await().length === (sb_aux + 1))
-        assert(fileStore.getCountStats.tooBig === 1)
         fileStore.shrink(0)
         fileStore.resetCounters()
       }
@@ -399,9 +405,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb68, 20).await()
         val bb69 = ByteBuffer.wrap(new Array[Byte](SORTING_BUFFER_DATA_SIZE * 2))
         fileStore.putAtViaSortingBuffer(bb69, 21).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 22)
         assert(fileStore.get(21).await().length === (SORTING_BUFFER_DATA_SIZE * 2))
-        assert(fileStore.getCountStats.tooBig === 1)
         fileStore.shrink(0)
         fileStore.resetCounters()
       }
@@ -413,9 +420,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb68, 20).await()
         val bb69 = ByteBuffer.wrap(new Array[Byte](SORTING_BUFFER_DATA_SIZE * 2))
         fileStore.putAtViaSortingBuffer(bb69, 25).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 26)
         assert(fileStore.get(25).await().length === (SORTING_BUFFER_DATA_SIZE * 2))
-        assert(fileStore.getCountStats.tooBig === 1)
         fileStore.shrink(0)
         fileStore.resetCounters()
       }
@@ -427,9 +435,10 @@ class FileRangeStoreWithSortingBufferTest
         fileStore.putAtViaSortingBuffer(bb68, 20).await()
         val bb69 = ByteBuffer.wrap(new Array[Byte](SORTING_BUFFER_DATA_SIZE * 2))
         fileStore.putAtViaSortingBuffer(bb69, 15).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 21)
         assert(fileStore.get(15).await().length === (SORTING_BUFFER_DATA_SIZE * 2))
-        assert(fileStore.getCountStats.tooBig === 1)
         fileStore.shrink(0)
         fileStore.resetCounters()
       }
@@ -437,19 +446,20 @@ class FileRangeStoreWithSortingBufferTest
       {
         val bb69 = ByteBuffer.wrap(new Array[Byte](SORTING_BUFFER_DATA_SIZE * 2))
         fileStore.putAtViaSortingBuffer(bb69, 15).await()
+        Thread.sleep(100)
+        fileStore.flushObsolete()
         assert(fileStore.size === 16)
         assert(fileStore.get(15).await().length === (SORTING_BUFFER_DATA_SIZE * 2))
-        assert(fileStore.getCountStats.tooBig === 1)
         fileStore.shrink(0)
         fileStore.resetCounters()
       }
 
     }
 
-    "inserting more than SORTING_BUFFER_TOTAL_SLOTS unordereds to get gaps" taggedAs FileRangeStoreWithSortingBufferTest in {
-      val fileTest = new File("data/storeSBV2005")
+    "inserting more than SORTING_BUFFER_TOTAL_SLOTS unordereds to get gaps" taggedAs (FileRangeStoreMSBTest, WeirdSMB1) in {
+      val fileTest = new File("data/storeSBV2005-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreMSB(fileTest, 10 * slots, 100)
 
       (1 to maxSlot).map { i ⇒
         val bb = ByteBuffer.wrap(Array(i.toByte))
@@ -462,28 +472,30 @@ class FileRangeStoreWithSortingBufferTest
       fileStore.putAtViaSortingBuffer(ByteBuffer.wrap(Array((maxSlot + 1).toByte)), maxSlot + 1)
 
       //fileStore.print(3000)
+      Thread.sleep(300)
+      fileStore.flushObsolete()
 
       assert(fileStore.size === (maxSlot + 2))
       assert(fileStore.get(0).await().toSeq === Nil)
       assert(fileStore.get(666).await().get === 666.toByte)
     }
 
-    s"inserting overhread measuring maxSlot=$maxSlot" taggedAs (FileRangeStoreWithSortingBufferTest, PerfCase1) in {
+    s"inserting overhread measuring maxSlot=$maxSlot" taggedAs FileRangeStoreMSBTest in {
       val thisS = maxSlot
       val array = (0 until 32).map(x ⇒ 0.toByte).toArray
       val data0 = (0 until thisS).toList
       val data1 = rnd.shuffle(data0)
       //val data1 = data0.reverse
 
-      val fileTest1 = new File("data/storeSBV2006")
+      val fileTest1 = new File("data/storeSBV2006-SMB")
       fileTest1.delete()
-      val fileTest2 = new File("data/storeSBV2007")
+      val fileTest2 = new File("data/storeSBV2007-SMB")
       fileTest2.delete()
 
       def testWB(n: Int): (Double, Int) = {
         System.gc()
         Thread.sleep(500)
-        val fileStore = new FileRangeStoreWithSortingBuffer(fileTest1, 2 * thisS, true)
+        val fileStore = new FileRangeStoreMSB(fileTest1, 2 * thisS, 5000, true)
         val t0 = System.nanoTime()
         var cntErr = 0
         Future.sequence(data1.map { i ⇒
@@ -507,7 +519,7 @@ class FileRangeStoreWithSortingBufferTest
       def testDirect(n: Int): (Double, Int) = {
         System.gc()
         Thread.sleep(500)
-        val fileStore = new FileRangeStoreWithSortingBuffer(fileTest2, 2 * thisS, true)
+        val fileStore = new FileRangeStoreMSB(fileTest2, 2 * thisS, 5000, true)
         val t2 = System.nanoTime()
         var cntErr = 0
         data0.foreach { i ⇒
@@ -537,14 +549,14 @@ class FileRangeStoreWithSortingBufferTest
       for (i ← 1 to 10) test(i)
     }
 
-    s"ignore never happen with SM and prefixFlushes only" taggedAs (FileRangeStoreWithSortingBufferTest, SMWBIgnore) in {
+    s"ignore never happen with SM and prefixFlushes only" taggedAs FileRangeStoreMSBTest in {
       val thisS = maxSlot * 100
       val data = (0 until thisS).grouped(100).flatMap(rnd.shuffle(_)).toSeq
       val array = (0 until 32).map(_.toByte).toArray
       System.gc()
       val fileTest = new File("data/storeSM-SB-0001")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS, true, FileRangeStoreWithSortingBuffer.SM)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * thisS, 5000, true)
 
       def testWB(): Unit = {
         fileStore.resetCounters()
@@ -567,28 +579,16 @@ class FileRangeStoreWithSortingBufferTest
       for (i ← 1 to 5) testWB()
     }
 
-    s"heavy inserting, maxSlot=$maxSlot" taggedAs HeavyTemporaryTest in {
+    s"heavy inserting, maxSlot=$maxSlot" taggedAs HeavyTemporarySMBTest in {
       val thisS = maxSlot * 100
       println(s"prepating data for $maxSlot elements")
       var t0 = System.nanoTime()
 
       val data = (0 until thisS).grouped(maxSlot / 5).flatMap(rnd.shuffle(_)).toSeq
 
-      /* val data0 = IntBuffer.wrap((0 until thisS).toArray)
-      val data1 = IntBuffer.allocate(thisS)
-      while (data0.hasRemaining) {
-        //val arr = new Array[Int](100.min(data0.remaining()))
-        val sz = 1 + rnd.nextInt(FileRangeStore.SORTING_BUFFER_TOTAL_SLOTS - 1)
-        val arr = new Array[Int](sz.min(data0.remaining()))
-        data0.get(arr)
-        data1.put(rnd.shuffle(arr.toSeq).toArray)
-      }
-      val data = data1.array().toSeq*/
-
       var t1 = System.nanoTime()
       println(s"data generated in ${(t1 - t0) / 1e9} sec")
 
-      //val array = (0 until 32).map(_.toByte).toArray
       val arrays = (5 to 100).map(x ⇒ (5 to 100).take(x).map(_.toByte).toArray).toList
 
       t0 = System.nanoTime()
@@ -597,13 +597,13 @@ class FileRangeStoreWithSortingBufferTest
       println(s"System.gc() in ${(t1 - t0) / 1e9} sec")
 
       t0 = System.nanoTime()
-      val fileTest = new File("data/storeSBVT2006")
+      val fileTest = new File("data/storeSBVT2006-SMB")
       fileTest.delete()
       t1 = System.nanoTime()
       println(s"fileTest.delete in ${(t1 - t0) / 1e9} sec")
 
       t0 = System.nanoTime()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS, true, FileRangeStoreWithSortingBuffer.SM)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * thisS, 5000, true)
       t1 = System.nanoTime()
       println(s"fileStore creating in ${(t1 - t0) / 1e9} sec")
 
@@ -616,10 +616,6 @@ class FileRangeStoreWithSortingBufferTest
         data.foreach { i ⇒
           val array = arrays(rnd.nextInt(arrayssize))
           val bb = ByteBuffer.wrap(array)
-          /*val t01 = System.nanoTime()
-          for (i ← 1 to 100) Thread.`yield`()
-          val t02 = System.nanoTime()
-          if (i % 1000 == 0) println(s"i=$i, t=${t02 - t01}")*/
 
           Try(fileStore.putAtViaSortingBufferSilent(bb, i).await()) match {
             case Success(res) ⇒
@@ -627,12 +623,8 @@ class FileRangeStoreWithSortingBufferTest
               if (cntErr == 0) ex.printStackTrace()
               cntErr += 1
           }
-          //println(s"inserted i=$i, wm=${fileStore.getReadWatermark}, stats=${fileStore.getCountStats}, sb_free_slot=${fileStore.sb_free_slot.mkString("[", ",", "]")}")
-          //row += 1
-          //if (row % 10 == 0) println("*" * 30)
         }
         assert(cntErr === 0)
-        //assert(fileStore.size === (thisS - ...))
         val t1 = System.nanoTime()
         t1 - t0
       }
@@ -645,24 +637,18 @@ class FileRangeStoreWithSortingBufferTest
         println(s"$i. with buffer = $t1, stats=$stats, cnt=${data.size}")
       }
 
-      /*      for (i ← 10.to(0, -1)) {
-        println("..." + i)
-        Thread.sleep(1000)
-      }
-      println("Go!!!")*/
-
       for (i ← 1 to 60) test(i)
     }
 
-    s"weird case 4" taggedAs (FileRangeStoreWithSortingBufferTest, WeirdCase4) in {
+    s"weird case 4" taggedAs FileRangeStoreMSBTest in {
       val thisS = maxSlot * 5
       var t0 = System.nanoTime()
       val data = (0 until thisS).grouped(maxSlot / 5).flatMap(rnd.shuffle(_)).toSeq
       val arrays = (5 to 100).map(x ⇒ (5 to 100).take(x).map(_.toByte).toArray).toList
       System.gc()
-      val fileTest = new File("data/storeSBVT2006")
+      val fileTest = new File("data/storeSBVT2006-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS, true, FileRangeStoreWithSortingBuffer.SM)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * thisS, 5000, true)
 
       def testWB(): Unit = {
         var cntErr = 0
@@ -687,25 +673,14 @@ class FileRangeStoreWithSortingBufferTest
       testWB()
     }
 
-    s"weird case 3" taggedAs (FileRangeStoreWithSortingBufferTest, WeirdCase3) in {
+    s"weird case 3" taggedAs (FileRangeStoreMSBTest, WeirdSMB2) in {
       val thisS = maxSlot * 100
-      println(s"prepating data for $maxSlot elements")
+      println(s"prepating data for $maxSlot elements - weird case 3")
       var t0 = System.nanoTime()
 
       rnd.setSeed(1)
 
-      val data = (0 until thisS).grouped(maxSlot - 100).flatMap(rnd.shuffle(_)).toSeq
-
-      /* val data0 = IntBuffer.wrap((0 until thisS).toArray)
-      val data1 = IntBuffer.allocate(thisS)
-      while (data0.hasRemaining) {
-        //val arr = new Array[Int](100.min(data0.remaining()))
-        val sz = 1 + rnd.nextInt(FileRangeStore.SORTING_BUFFER_TOTAL_SLOTS - 1)
-        val arr = new Array[Int](sz.min(data0.remaining()))
-        data0.get(arr)
-        data1.put(rnd.shuffle(arr.toSeq).toArray)
-      }
-      val data = data1.array().toSeq*/
+      val data = (0 until thisS).grouped(maxSlot - 2).flatMap(rnd.shuffle(_)).toSeq
 
       var t1 = System.nanoTime()
       println(s"data generated in ${(t1 - t0) / 1e9} sec")
@@ -719,13 +694,13 @@ class FileRangeStoreWithSortingBufferTest
       println(s"System.gc() in ${(t1 - t0) / 1e9} sec")
 
       t0 = System.nanoTime()
-      val fileTest = new File("data/storeSBVT202406")
+      val fileTest = new File("data/storeSBVT202406-SMB")
       fileTest.delete()
       t1 = System.nanoTime()
       println(s"fileTest.delete in ${(t1 - t0) / 1e9} sec")
 
       t0 = System.nanoTime()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS, true, FileRangeStoreWithSortingBuffer.SM)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * thisS, 500000, true)
       t1 = System.nanoTime()
       println(s"fileStore creating in ${(t1 - t0) / 1e9} sec")
 
@@ -733,13 +708,15 @@ class FileRangeStoreWithSortingBufferTest
         var cntErr = 0
         val t0 = System.nanoTime()
         var row = 0
+        println("writing")
+        var cnt = 0
+
         data.foreach { i ⇒
           val array = arrays(rnd.nextInt(arrays.size))
           val bb = ByteBuffer.wrap(array)
-          /*val t01 = System.nanoTime()
-          for (i ← 1 to 100) Thread.`yield`()
-          val t02 = System.nanoTime()
-          if (i % 1000 == 0) println(s"i=$i, t=${t02 - t01}")*/
+
+          //if (cnt % 10000 == 0) println(s"cnt=$cnt")
+          cnt += 1
 
           Try(fileStore.putAtViaSortingBufferSilent(bb, i).await()) match {
             case Success(res) ⇒
@@ -747,12 +724,11 @@ class FileRangeStoreWithSortingBufferTest
               if (cntErr == 0) ex.printStackTrace()
               cntErr += 1
           }
-          //println(s"inserted i=$i, array.size=${array.length}, wm=${fileStore.getReadWatermark}, stats=${fileStore.getCountStats}, sb_free_slot=${fileStore.sb_free_slot.mkString("[", ",", "]")}")
-          //row += 1
-          //if (row % 10 == 0) println("*" * 30)
         }
         assert(cntErr === 0)
         assert(fileStore.size === thisS)
+
+        println("reading")
 
         // to test case when defragmentation just drop content of buffer
         val zeros = (0 until fileStore.size).count(i ⇒ fileStore.get(i).await().remaining() == 0)
@@ -770,19 +746,13 @@ class FileRangeStoreWithSortingBufferTest
         println(s"$i. with buffer = $t1, stats=$stats, cnt=${data.size}")
       }
 
-      /*      for (i ← 10.to(0, -1)) {
-        println("..." + i)
-        Thread.sleep(1000)
-      }
-      println("Go!!!")*/
-
       for (i ← 1 to 1) test(i)
     }
 
-    "weird case2" taggedAs (FileRangeStoreWithSortingBufferTest, WeirdCase2) in {
-      val fileTest = new File("data/storeSBV200123")
+    "weird case2" taggedAs FileRangeStoreMSBTest in {
+      val fileTest = new File("data/storeSBV200123-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * slots)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * slots, 5000)
 
       rewindBBs()
       var idx = 0
@@ -811,16 +781,16 @@ class FileRangeStoreWithSortingBufferTest
       }
     }
 
-    "weird case1" taggedAs (FileRangeStoreWithSortingBufferTest, WeirdCase1) in {
+    "weird case1" taggedAs FileRangeStoreMSBTest in {
       val array = (0 until 32).map(_.toByte).toArray
       val data0 = (0 until maxSlot).toList
 
-      val fileTest1 = new File("data/storeSBVW200612")
+      val fileTest1 = new File("data/storeSBVW200612-SMB")
       fileTest1.delete()
       val raf = new RandomAccessFile(fileTest1.getPath, "rw")
       raf.setLength(5 * (1 << 20))
 
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest1, 2 * maxSlot, true)
+      val fileStore = new FileRangeStoreMSB(fileTest1, 2 * maxSlot, 5000, true)
       //fileStore.print()
 
       def testDirect(n: Int) = {
@@ -849,12 +819,12 @@ class FileRangeStoreWithSortingBufferTest
       testDirect(1)
     }
 
-    "trash test" taggedAs (FileRangeStoreWithSortingBufferTest, TrashTest) in {
-      val fileTest = new File("data/storeSBVWTT0001")
-      val fileTestT = new File("data/storeSBVWTT0001_TRASH")
+    "trash test" taggedAs FileRangeStoreMSBTest in {
+      val fileTest = new File("data/storeSBVWTT0001-SMB")
+      val fileTestT = new File("data/storeSBVWTT0001_TRASH-SMB")
       fileTest.delete()
       fileTestT.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * maxSlot, true)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * maxSlot, 5000, true)
       fileStore.enableTrash(fileTestT)
       fileStore.putAtSync(ByteBuffer.wrap(new Array[Byte](10)).put(1.toByte), 10)
 
@@ -879,16 +849,16 @@ class FileRangeStoreWithSortingBufferTest
 
     }
 
-    "weird case5" taggedAs (FileRangeStoreWithSortingBufferTest, WeirdCase5) in {
+    "weird case5" taggedAs FileRangeStoreMSBTest in {
       val thisS = maxSlot * 100
       var t0 = System.nanoTime()
       val data = (0 until thisS).grouped(maxSlot / 3).flatMap(rnd.shuffle(_)).toSeq
       //val data = rnd.shuffle((0 until thisS).toList).take(4 * maxSlot).sorted
       val arrays = (5 to (10000, 100)).zipWithIndex.map(x ⇒ 5.to(10000, 100).take(x._2).map(_.toByte).toArray).toList
       System.gc()
-      val fileTest = new File("data/storeSBVT2009-S")
+      val fileTest = new File("data/storeSBVT2009-S-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS, true, FileRangeStoreWithSortingBuffer.SM)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * thisS, 5000, true)
 
       def testWB(): Unit = {
         var cntErr = 0
@@ -914,7 +884,7 @@ class FileRangeStoreWithSortingBufferTest
       testWB()
     }
 
-    "copy allocated test" taggedAs (FileRangeStoreWithSortingBufferTest, CopyAllocatedTest) in {
+    "copy allocated test" taggedAs FileRangeStoreMSBTest in {
       // magic number to maximize fragmentation
       val magic1 = 16
       val magic2 = 32764
@@ -924,9 +894,9 @@ class FileRangeStoreWithSortingBufferTest
       val data = (0 until thisS).grouped(maxSlot).flatMap(rnd.shuffle(_)).toSeq.toList.take(magic2)
       val arrays = (1 to magic3).map(x ⇒ (0 to x).map(_.toByte).toArray)
       System.gc()
-      val fileTest = new File("data/storeSBVT2009-S")
+      val fileTest = new File("data/storeSBVT2009-S-SMB")
       fileTest.delete()
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS, true, FileRangeStoreWithSortingBuffer.SM)
+      val fileStore = new FileRangeStoreMSB(fileTest, 2 * thisS, 5000, true)
 
       def testWB(): Unit = {
         var cntErr = 0
@@ -945,10 +915,6 @@ class FileRangeStoreWithSortingBufferTest
                   if (cntErr == 0) ex.printStackTrace()
                   cntErr += 1
               }
-            }
-            if (max < fileStore.sb_free_space.getFreeSpace.size) {
-              idxMax = idx
-              max = fileStore.sb_free_space.getFreeSpace.size
             }
             //if (idx % 10000 == 0) println(s"idx=$idx, idxMax=$idxMax, max=$max")
             //println(idx, fileStore.getCountStats)
@@ -961,104 +927,13 @@ class FileRangeStoreWithSortingBufferTest
 
       testWB()
 
-      val fileTestT = new File("data/storeSBVT2009-T")
+      val fileTestT = new File("data/storeSBVT2009-T-SMB")
       fileTestT.delete()
       val cp = fileStore.copyTo(fileTestT)
-      assert(cp.sb_free_space.getFreeSpace.toSet === fileStore.sb_free_space.getFreeSpace.toSet)
       assert(cp.size === fileStore.size)
       println("fileStore.getCountStats", fileStore.getCountStats)
       println("fileStore.bufferedSlots.size", fileStore.bufferedSlots.size)
-      println("getFreeSpace.size", fileStore.sb_free_space.getFreeSpace.size)
     }
 
-    "testing defragmentation recover" taggedAs (FileRangeStoreWithSortingBufferTest, DefragmentationTestInterrupt) in {
-      rnd.setSeed(1)
-
-      val fileTest = new File("data/storeSBDFT0001")
-      fileTest.delete()
-      // magic number to maximize fragmentation
-      val magic1 = 16
-      val magic2 = 40000
-      val magic3 = 62
-      val thisS = maxSlot * magic1
-      var t0 = System.nanoTime()
-      val data = (0 until thisS).grouped(maxSlot).flatMap(rnd.shuffle(_)).toSeq.toList.take(magic2)
-      val arrays = (1 to magic3).map(x ⇒ (0 to x).map(_.toByte).toArray)
-      System.gc()
-
-      val fileStore = new FileRangeStoreWithSortingBuffer(fileTest, 2 * thisS, true, FileRangeStoreWithSortingBuffer.SM)
-      fileStore.enableTestInterrupt()
-
-      var slots0 = 0
-      var space0 = 0
-      var elemSzv = 0
-
-      def testWB(): Unit = {
-        var cntErr = 0
-        val arrayssize = arrays.size
-        var idx = 0
-        var idxMax = -1
-        var max = 0
-        var interrupted = false
-        data.foreach { i ⇒
-          if (cntErr == 0 && !interrupted) {
-            val array = arrays(rnd.nextInt(arrayssize))
-            val bb = ByteBuffer.wrap(array)
-
-            elemSzv = bb.remaining()
-            space0 = fileStore.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum
-            slots0 = fileStore.bufferedSlots.size
-
-            Try(fileStore.putAtViaSortingBufferSilent(bb, i).await()) match {
-              case Success(res) ⇒
-              case Failure(ex) ⇒ ex match {
-                case FileRangeStore.TestInterruptException() ⇒
-                  println(s"interrupted, idx=$idx")
-                  interrupted = true
-                case ex0: Throwable ⇒
-                  println(s"idx=$idx")
-                  if (cntErr == 0) ex0.printStackTrace()
-                  cntErr += 1
-              }
-            }
-            idx += 1
-          }
-        }
-        assert(cntErr === 0)
-        println(idx, fileStore.getCountStats)
-      }
-
-      testWB()
-
-      println(s"fs fileStore.getCountStats=${fileStore.getCountStats}")
-      println(s"fs getFreeSpace.sum=${fileStore.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum}")
-      //println(s"fs getFreeSpace=${fileStore.sb_free_space.getFreeSpace.toList}")
-      println(s"fs bufferedSlots=${fileStore.bufferedSlots.size}")
-
-      val fileTestT = new File("storeSBDFT0001-T")
-      fileTestT.delete()
-      val cp = fileStore.copyTo(fileTestT)
-
-      println(s"cp fileStore.getCountStats=${cp.getCountStats}")
-      println(s"cp getFreeSpace.sum=${cp.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum}")
-      //println(s"cp getFreeSpace=${cp.sb_free_space.getFreeSpace.toList}")
-      println(s"cp bufferedSlots=${cp.bufferedSlots.size}")
-
-      assert(cp.bufferedSlots.size === (slots0 + 1))
-      assert(cp.sb_free_space.getFreeSpace.map(x ⇒ x._2 - x._1).sum === (space0 - elemSzv))
-      assert(cp.sb_free_space.getFreeSpace.size === 1)
-      assert(cp.size === fileStore.size)
-    }
-
-    "SortedIntMapA test" taggedAs SortedStructTest in {
-      import database.SortedIntMapA
-      val xxx = new SortedIntMapA[Int](-1)
-      for (i ← 1 to 100) xxx += i → i
-      xxx -= 1
-      xxx -= 2
-      xxx -= 5
-      xxx -= 6
-      println(xxx.iterator.toList)
-    }
   }
 }

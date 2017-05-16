@@ -4,12 +4,16 @@ import java.io.{File, RandomAccessFile}
 import java.nio.{ByteBuffer, MappedByteBuffer}
 import java.nio.channels.{AsynchronousFileChannel, CompletionHandler, FileChannel}
 import java.nio.file.StandardOpenOption
+
 import BufferUtil._
 import com.typesafe.scalalogging.LazyLogging
 import sun.nio.ch.DirectBuffer
+
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.Try
 import UnsafeUtil._
+
+import scala.collection.mutable.ArrayBuffer
 
 // todo: cleanup after failed write + other error handling
 // done: bulk load api - putRange/putRangeAt API
@@ -34,7 +38,8 @@ object FileRangeStore {
   final val SORTING_BUFFER_FIRST_SLOT_MAP: Int = SORTING_BUFFER_FIRST_SLOT_LEN - SORTING_BUFFER_SLOTS_SIZE
   final val SORTING_BUFFER_FLUSH_AUX: Int = SORTING_BUFFER_DATA_SIZE / 8
 
-  final val TRASH_RESERVED = 4096
+  final val TRASH_RESERVED: Int = 4096
+  final val SORTING_BUFFER_FLUSH_SIZE: Int = 524288
 
   class MMInt(mmap: MappedByteBuffer, addr: Int, initValue: Option[Int]) {
     @volatile private var cache: Int = _
@@ -134,14 +139,18 @@ object FileRangeStore {
     }
   }
 
-  class FileRangeStoreException(val msg: String) extends RuntimeException(msg: String)
-  class WriteQueueOverflowException(msg: String) extends FileRangeStoreException(msg: String)
-  class WriteBeyondMaxPosException(msg: String) extends FileRangeStoreException(msg: String)
-  class NoAvailableSlotsException(msg: String) extends FileRangeStoreException(msg: String)
-  class SlotAlreadyUsedException(msg: String) extends FileRangeStoreException(msg: String)
-  class NegativeSlotException(msg: String) extends FileRangeStoreException(msg: String)
-  class ReadAboveWatermarkException(msg: String) extends FileRangeStoreException(msg: String)
+  class FileRangeStoreException(val msg: String) extends RuntimeException(msg)
+  class WriteQueueOverflowException(msg: String) extends FileRangeStoreException(msg)
+  class WriteBeyondMaxPosException(msg: String) extends FileRangeStoreException(msg)
+  class NoAvailableSlotsException(msg: String) extends FileRangeStoreException(msg)
+  class SlotAlreadyUsedException(msg: String) extends FileRangeStoreException(msg)
+  class NegativeSlotException(msg: String) extends FileRangeStoreException(msg)
+  class ReadAboveWatermarkException(msg: String) extends FileRangeStoreException(msg)
   class MmapWriteNotEnabled extends FileRangeStoreException("MMAP writes are not explicitly enabled")
+
+  case class TrashMeta(idx: Int, bufferLen: Int, pos: Int)
+  case class TestInterruptException() extends RuntimeException
+  case class InitException(msg: String) extends RuntimeException(msg)
 }
 
 class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = false) extends RangeAsyncApi with LazyLogging {
@@ -200,6 +209,14 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
   private val slots = slots_mmap.asIntBuffer()
   @volatile private var readWatermark = if (initializationRequired) -1 else currSlot.get - 1
 
+  def checkPointers(): Unit = {
+    val slot = currSlot.get
+    if (slot > 0) {
+      val pos = slots.get(slot - 1)
+      if (currPos.get != pos) throw new InitException(s"Invalid postions currPos.get=${currPos.get}, currSlot.get=$slot, slots.get(slot - 1)=$pos")
+    }
+  }
+
   protected object writeLock
   private object queueLock
 
@@ -253,6 +270,15 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
 
   private def put[T](bb: ByteBuffer, putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): PutResult[T] = writeLock.synchronized {
     val len = bb.remaining()
+
+    /*
+    todo:
+    val checksum = new java.util.zip.CRC32()
+    checksum.update(bb)
+    val value = checksum.getValue
+    println(value)
+    */
+
     val slot = currSlot.get
     val pos = currPos.get
     val nextPos = pos.toLong + len
@@ -310,7 +336,7 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
     PutResult(firstSlot, res)
   }
 
-  private def putRangeAt[T](bb: ByteBuffer, offsets: Array[Int], idx: Int, putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): PutResult[T] = writeLock.synchronized {
+  private def putRangeAt[T](bb: ByteBuffer, offsets: ArrayBuffer[Int], idx: Int, putf: (ByteBuffer, Int, Boolean ⇒ Unit) ⇒ T): PutResult[T] = writeLock.synchronized {
     val len = bb.remaining()
     val pos = currPos.get
     val nextPos = currPos.get.toLong + len
@@ -357,10 +383,10 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
   def putRangeSyncMmap(bb: ByteBuffer, offsets: Array[Int]): PutResult[Int] = if (mmapWrite) putRange(bb, offsets, mmapPut) else throw new MmapWriteNotEnabled
   def putRange(bb: ByteBuffer, offsets: Array[Int]): PutResult[Int] = putRangeSync(bb, offsets)
 
-  def putRangeAtAsync(bb: ByteBuffer, offsets: Array[Int], idx: Int): PutResult[Future[GetResult]] = putRangeAt(bb, offsets, idx, async.putX)
-  def putRangeAtSync(bb: ByteBuffer, offsets: Array[Int], idx: Int): PutResult[Int] = putRangeAt(bb, offsets, idx, channel.putX)
-  def putRangeAtSyncMmap(bb: ByteBuffer, offsets: Array[Int], idx: Int): PutResult[Int] = if (mmapWrite) putRangeAt(bb, offsets, idx, mmapPut) else throw new MmapWriteNotEnabled
-  def putRangeAt(bb: ByteBuffer, offsets: Array[Int], idx: Int): PutResult[Int] = putRangeAtSync(bb, offsets, idx)
+  def putRangeAtAsync(bb: ByteBuffer, offsets: ArrayBuffer[Int], idx: Int): PutResult[Future[GetResult]] = putRangeAt(bb, offsets, idx, async.putX)
+  def putRangeAtSync(bb: ByteBuffer, offsets: ArrayBuffer[Int], idx: Int): PutResult[Int] = putRangeAt(bb, offsets, idx, channel.putX)
+  def putRangeAtSyncMmap(bb: ByteBuffer, offsets: ArrayBuffer[Int], idx: Int): PutResult[Int] = if (mmapWrite) putRangeAt(bb, offsets, idx, mmapPut) else throw new MmapWriteNotEnabled
+  def putRangeAt(bb: ByteBuffer, offsets: ArrayBuffer[Int], idx: Int): PutResult[Int] = putRangeAtSync(bb, offsets, idx)
 
   // write in Future asyncs
   def putFAsync(bb: ByteBuffer)(implicit executionContext: ExecutionContext): PutResult[Future[GetResult]] =
@@ -387,9 +413,9 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
     } else {
       throw new MmapWriteNotEnabled
     }
-  def putRangeAtFAsync(bb: ByteBuffer, offsets: Array[Int], idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[GetResult]] =
+  def putRangeAtFAsync(bb: ByteBuffer, offsets: ArrayBuffer[Int], idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[GetResult]] =
     putRangeAt(bb, offsets, idx, (buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit) ⇒ Future(async.putX(buffer, pos, callback)).flatten)
-  def putRangeAtFAsyncMmap(bb: ByteBuffer, offsets: Array[Int], idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[Int]] =
+  def putRangeAtFAsyncMmap(bb: ByteBuffer, offsets: ArrayBuffer[Int], idx: Int)(implicit executionContext: ExecutionContext): PutResult[Future[Int]] =
     if (mmapWrite) {
       putRangeAt(bb, offsets, idx, (buffer: ByteBuffer, pos: Int, callback: Boolean ⇒ Unit) ⇒ Future(mmapPut(buffer, pos, callback)))
     } else {
@@ -489,4 +515,6 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
     }
     println("*" * 30)
   }
+
+  checkPointers()
 }

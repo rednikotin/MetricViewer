@@ -185,13 +185,6 @@ class SortedIntMapX[V: ClassTag](unused: V) extends SortedIntMap[V] {
   private val mapj = new SortedIntMapJ[V]()
   private var aorj = true
   private def cur = if (aorj) mapa else mapj
-  private def copyatoj() = {
-    mapa.iterator.foreach {
-      case (k, v) ⇒
-        mapj += k → v
-    }
-    mapa.clear()
-  }
   def clear(): Unit = {
     cur.clear()
     aorj = true
@@ -202,8 +195,9 @@ class SortedIntMapX[V: ClassTag](unused: V) extends SortedIntMap[V] {
         mapa += kv
       } else {
         switched += 1
+        mapa.iterator.foreach(mapj.+=)
         aorj = false
-        copyatoj()
+        mapa.clear()
         mapj += kv
       }
     } else {
