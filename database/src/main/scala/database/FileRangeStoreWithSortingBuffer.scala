@@ -10,6 +10,7 @@ import scala.concurrent.Future
 import scala.util._
 import FileRangeStore._
 import FileRangeStoreWithSortingBuffer._
+import SpaceManager._
 
 // todo: log files (rotating), archive?
 // todo: checksum?
@@ -18,34 +19,6 @@ import FileRangeStoreWithSortingBuffer._
 // todo: hot backup
 // todo: recovery after failure
 object FileRangeStoreWithSortingBuffer {
-  trait SpaceManager {
-    def allocated(allocIntervals: Iterable[(Int, Int)]): Unit
-    def allocate(len: Int): Int
-    def release(pos: Int, len: Int): Unit
-    def clear(): Unit
-    def getFreeSpace: Iterator[(Int, Int)]
-  }
-
-  class NoSpaceLeftException(msg: String) extends RuntimeException(msg)
-  class FragmentationException(msg: String) extends RuntimeException(msg)
-
-  def intervalSM(size: Int): SpaceManager = {
-    new SpaceManager {
-      private val intervals = new Intervals.IntervalSet(0, size)
-      def allocated(allocIntervals: Iterable[(Int, Int)]): Unit = intervals.allocated(allocIntervals)
-      def allocate(len: Int): Int = try {
-        intervals.allocate(len)._1
-      } catch {
-        case ex: Intervals.AllocationFailedException ⇒
-          throw new NoSpaceLeftException(ex.msg)
-        case ex: Intervals.FragmentationException ⇒
-          throw new FragmentationException(ex.msg)
-      }
-      def release(pos: Int, len: Int): Unit = intervals.release(pos, len)
-      def clear(): Unit = intervals.clear()
-      def getFreeSpace: Iterator[(Int, Int)] = intervals.getIntervals.iterator
-    }
-  }
 
   def intervalRR(size: Int): SpaceManager = {
     new SpaceManager {
@@ -138,7 +111,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
   ///*private*/ val sbMap: SortedIntMap[Int] = new SortedIntMapJ[Int]()
   /*private*/ val sb_free_slot: mutable.ArrayStack[Int] = mutable.ArrayStack[Int]()
   /*private*/ val sb_free_space: SpaceManager = spaceManagerType match {
-    case SM ⇒ intervalSM(SORTING_BUFFER_DATA_SIZE)
+    case SM ⇒ Intervals.getSpaceManager(SORTING_BUFFER_DATA_SIZE)
     case RR ⇒ intervalRR(SORTING_BUFFER_DATA_SIZE)
   }
 

@@ -74,4 +74,6 @@ object MyTags {
 
   object WeirdSMB3 extends Tag("WeirdSMB3")
 
+  object FileStoreTest extends Tag("FileStoreTest")
+
 }

@@ -1012,7 +1012,7 @@ class FileRangeStoreWithSortingBufferTest
             Try(fileStore.putAtViaSortingBufferSilent(bb, i).await()) match {
               case Success(res) ⇒
               case Failure(ex) ⇒ ex match {
-                case FileRangeStore.TestInterruptException() ⇒
+                case _: FileRangeStore.TestInterruptException ⇒
                   println(s"interrupted, idx=$idx")
                   interrupted = true
                 case ex0: Throwable ⇒

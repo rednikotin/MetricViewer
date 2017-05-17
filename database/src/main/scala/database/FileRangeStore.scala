@@ -149,8 +149,8 @@ object FileRangeStore {
   class MmapWriteNotEnabled extends FileRangeStoreException("MMAP writes are not explicitly enabled")
 
   case class TrashMeta(idx: Int, bufferLen: Int, pos: Int)
-  case class TestInterruptException() extends RuntimeException
-  case class InitException(msg: String) extends RuntimeException(msg)
+  class TestInterruptException() extends RuntimeException
+  class InitException(msg: String) extends RuntimeException(msg)
 }
 
 class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = false) extends RangeAsyncApi with LazyLogging {
