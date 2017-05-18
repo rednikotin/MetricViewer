@@ -6,6 +6,7 @@ import database.FileRangeStore.PutResult
 
 import scala.concurrent.{ExecutionContext, Future}
 
+// todo: to be refactored
 trait RangeApi {
   def put(bb: ByteBuffer): Unit
   def putAt(bb: ByteBuffer, idx: Int): Unit

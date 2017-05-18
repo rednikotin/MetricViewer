@@ -5,7 +5,7 @@ import java.nio.{ByteBuffer, MappedByteBuffer}
 import java.nio.channels.{AsynchronousFileChannel, CompletionHandler, FileChannel}
 import java.nio.file.StandardOpenOption
 
-import BufferUtil._
+import database.util.BufferUtil._
 import com.typesafe.scalalogging.LazyLogging
 import sun.nio.ch.DirectBuffer
 

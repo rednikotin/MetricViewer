@@ -6,11 +6,12 @@ import java.nio.{ByteBuffer, IntBuffer}
 import org.scalatest.{BeforeAndAfterAll, Matchers, Tag, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
-import BufferUtil._
+import database.util.BufferUtil._
 import database.FileRangeStore._
 
 import scala.concurrent.Future
 import MyTags._
+import database.space.{Intervals, IntervalsV1, IntervalsV4}
 
 import scala.util.{Failure, Random, Success, Try}
 
@@ -39,7 +40,7 @@ class IntervalsTest
       assert(intervals.getLength === 1)
       intervals.release(i2)
       assert(intervals.getLength === 4)
-      assertThrows[impl.FragmentationException](intervals.allocate(4))
+      assertThrows[Intervals.FragmentationException](intervals.allocate(4))
       assert(intervals.allocate(2) === impl.Interval(3, 5))
     }
 
@@ -122,7 +123,7 @@ class IntervalsTest
       assert(intervals.getLength === 1)
       intervals.release(i2)
       assert(intervals.getLength === 4)
-      assertThrows[impl.FragmentationException](intervals.allocate(4))
+      assertThrows[Intervals.FragmentationException](intervals.allocate(4))
       assert(intervals.allocate(2) === (3, 5))
     }
 

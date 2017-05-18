@@ -3,8 +3,11 @@ package database
 import java.io.{File, RandomAccessFile}
 import java.nio.{ByteBuffer, MappedByteBuffer}
 import java.nio.channels.FileChannel
+
 import scala.collection.mutable
 import FileStore._
+import database.space.{Intervals, SpaceManager}
+
 import scala.util.{Failure, Success, Try}
 
 trait Store {
@@ -260,12 +263,4 @@ class FileStore(val file: File, val maxRows: Int, val maxSize: Int, val reinit: 
     buffer.reset()
     chk0
   }
-
-  /*  private val map = collection.mutable.HashMap[String, Int]()*/
-
-  /*  def get(k: String): Option[Int] = map.get(k)
-  def put(k: String, v: Int): Unit = map.put(k, v)
-  def iterator: Iterator[(String, Int)] = map.iterator
-  def contains(k: String): Boolean = map.contains(k)
-  def clear(): Unit = map.clear()*/
 }

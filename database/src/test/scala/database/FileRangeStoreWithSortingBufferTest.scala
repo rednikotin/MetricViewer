@@ -2,13 +2,11 @@ package database
 
 import java.io.{File, RandomAccessFile}
 import java.nio.{ByteBuffer, IntBuffer}
-
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
-import BufferUtil._
+import database.util.BufferUtil._
 import database.FileRangeStore._
-
 import scala.concurrent.Future
 import MyTags._
 import database.FileRangeStore.TrashMeta
@@ -1051,7 +1049,7 @@ class FileRangeStoreWithSortingBufferTest
     }
 
     "SortedIntMapA test" taggedAs SortedStructTest in {
-      import database.SortedIntMapA
+      import database.util.SortedIntMapA
       val xxx = new SortedIntMapA[Int](-1)
       for (i ← 1 to 100) xxx += i → i
       xxx -= 1

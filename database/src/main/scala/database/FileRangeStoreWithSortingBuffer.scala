@@ -10,7 +10,9 @@ import scala.concurrent.Future
 import scala.util._
 import FileRangeStore._
 import FileRangeStoreWithSortingBuffer._
+import database.space.{Intervals, SpaceManager}
 import SpaceManager._
+import database.util.SortedIntMapX
 
 // todo: log files (rotating), archive?
 // todo: checksum?

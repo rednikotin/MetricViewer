@@ -2,11 +2,13 @@ package database
 
 import java.io.File
 import java.nio.ByteBuffer
+
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
-import BufferUtil._
+import database.util.BufferUtil._
 import MyTags._
+import database.indexing.{IndexedFileStore, UIndexedFileStore, UIndexedStore}
 
 class FileStoreTest
     extends TestKit(ActorSystem("FileRangeStoreTest"))
@@ -26,6 +28,8 @@ class FileStoreTest
   val bb3: ByteBuffer = ByteBuffer.wrap(arr3)
   val bb4: ByteBuffer = ByteBuffer.wrap(arr4)
   val bb5: ByteBuffer = ByteBuffer.wrap(arr5)
+
+  def buf(x: Int*): ByteBuffer = ByteBuffer.wrap(x.map(_.toByte).toArray)
 
   def rewindBBs(): Unit = {
     bb1.rewind()
@@ -172,8 +176,6 @@ class FileStoreTest
       val fs = new FileStore(fileTest, maxRows, 1 << 20)
       val ifs = new UIndexedFileStore(fs, _.get(0), _.get(1), _.get(2), _.get(3), _.getInt(0))
 
-      def buf(x: Int*): ByteBuffer = ByteBuffer.wrap(x.map(_.toByte).toArray)
-
       ifs.insert(buf(1, 2, 2, 3))
       ifs.insert(buf(2, 4, 6, 4))
       ifs.insert(buf(4, 1, 8, 5))
@@ -186,6 +188,46 @@ class FileStoreTest
       //println(buf(1, 2, 2, 3).getInt(0))
       //println((1 << 24) + (2 << 16) + (2 << 8) + 3)
       assert(ifs.selectBy(4)((1 << 24) + (2 << 16) + (2 << 8) + 3).get.toSeq(0) === 1)
+
+    }
+
+    "indesed store approach" taggedAs FileStoreTest in {
+      val maxRows = 100
+      val fileTest = new File("data/store-FST0004")
+      fileTest.delete()
+      val fs = new FileStore(fileTest, maxRows, 1 << 20)
+      val ifs = new IndexedFileStore(fs)
+      val idx0 = ifs.addIndex(_.get(0))
+      val uidx1 = ifs.addUniqueIndex(_.get(1))
+      val idxF = ifs.addIndex(_.toSeq.sum)
+
+      val id1 = ifs.insert(buf(1, 2, 2, 3))
+      val id2 = ifs.insert(buf(1, 4, 6, 4))
+      val id3 = ifs.insert(buf(2, 1, 8, 4))
+      val id4 = ifs.insert(buf(2, 3, 1, 0))
+
+      assert(idx0.selectBy(2).map(_.toSeq).toSet === Set(Seq(2, 1, 8, 4), Seq(2, 3, 1, 0)))
+      assert(uidx1.selectBy(2).get.toSeq === Seq(1, 2, 2, 3))
+      assert(idxF.selectBy(15).map(_.toSeq).toSet === Set(Seq(1, 4, 6, 4), Seq(2, 1, 8, 4)))
+
+      assertThrows[indexing.UniqueIndex.DuplicatedValueOnIndexException](ifs.insert(buf(9, 1, 1, -2)))
+      assertThrows[indexing.UniqueIndex.DuplicatedValueOnIndexException](ifs.update(id4, buf(9, 1, 1, -2)))
+
+      ifs.update(id4, buf(9, 3, 1, -2))
+      ifs.update(id4, buf(9, 6, 1, -2))
+      ifs.update(id4, buf(9, 3, 1, -2))
+
+      assert(uidx1.selectBy(3).get.toSeq === Seq(9, 3, 1, -2))
+
+      assert(uidx1.selectBy(10) === None)
+      assert(idx0.selectBy(10).toSeq === Nil)
+      assert(idxF.selectBy(10).toSeq === Nil)
+
+      val superBB = new Array[Byte](1 << 20)
+      assertThrows[FileStore.NoSpaceLeftException](ifs.insert(ByteBuffer.wrap(superBB)))
+
+      assert(idx0.selectBy(0).toSeq === Nil)
+      assert(uidx1.selectBy(0) === None)
 
     }
   }

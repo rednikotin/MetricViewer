@@ -2,7 +2,11 @@ package database
 
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
-import BufferUtil._
+import database.util.BufferUtil._
+
+object MemoryRangeStore {
+
+}
 
 // not thread safe! simple implementation
 class MemoryRangeStore(totalSlots: Int, impl: MemoryBuffer) extends RangeApi {

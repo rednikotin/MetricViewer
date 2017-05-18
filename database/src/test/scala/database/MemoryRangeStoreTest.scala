@@ -2,14 +2,17 @@ package database
 
 import java.io.File
 import java.nio.ByteBuffer
+
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
 import akka.util.Timeout
+
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
 import scala.collection.JavaConverters._
-import BufferUtil._
+import database.util.BufferUtil._
+import database.util.MemorySeq
 
 class MemoryRangeStoreTest
     extends TestKit(ActorSystem("MemoryRangeStoreTest"))

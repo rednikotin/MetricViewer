@@ -5,7 +5,7 @@ import java.nio.{ByteBuffer, IntBuffer}
 import org.scalatest.{BeforeAndAfterAll, Matchers, Tag, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
-import BufferUtil._
+import database.util.BufferUtil._
 import database.FileRangeStore._
 import scala.concurrent.Future
 import MyTags._

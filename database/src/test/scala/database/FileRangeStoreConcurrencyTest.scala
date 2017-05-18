@@ -6,7 +6,7 @@ import java.nio.ByteBuffer
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
-import BufferUtil._
+import database.util.BufferUtil._
 
 import scala.collection.mutable
 import scala.concurrent.duration._
