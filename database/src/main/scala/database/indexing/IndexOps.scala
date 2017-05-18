@@ -1,10 +1,9 @@
 package database.indexing
 
-import java.nio.ByteBuffer
-
-trait IndexOps {
-  def put(buffer: ByteBuffer): Int ⇒ Unit
-  def update(buffer: ByteBuffer, id: Int): () ⇒ Unit
-  def remove(buffer: ByteBuffer, id: Int): Unit
+// must be executed withing Write lock of the same lock which Read happened
+trait IndexOps[V] {
+  def put(value: V): Int ⇒ Unit
+  def update(value: V, id: Int): () ⇒ Unit
+  def remove(value: V, id: Int): Unit
   def clear(): Unit
 }

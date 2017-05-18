@@ -96,7 +96,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
   private val sb_slots_len_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT_LEN, SORTING_BUFFER_SLOTS_SIZE)
   private val sb_slots_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_FIRST_SLOT, SORTING_BUFFER_SLOTS_SIZE)
   private val sb_data_mmap: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, SORTING_BUFFER_DATA, SORTING_BUFFER_DATA_SIZE)
-  def commitSortingBuffer(): Unit = {
+  def forceSortingBuffer(): Unit = {
     sb_slots_map_mmap.force()
     sb_slots_len_mmap.force()
     sb_slots_mmap.force()
@@ -118,7 +118,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
   }
 
   private val tmp: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_WRITE, TEMP_AREA_FIRST, TEMP_AREA_SIZE)
-  def commitTemp(): Unit = {
+  def forceTemp(): Unit = {
     tmp.force()
   }
   private val tmpPhase = new MMInt(reserved_mmap, 8, if (initializationRequired) Some(0) else None)
@@ -183,17 +183,17 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
     tmp.put(inBuffer)
     inBuffer.rewind()
 
-    commitTemp()
+    forceTemp()
     tmpSize.set(sizeCalc + inLen)
     tmpPhase.set(1)
-    commitMeta()
+    forceMeta()
     resetSlots()
 
     if (testInterrupt) throw new TestInterruptException
 
     data.foreach { case (buffer, slot) ⇒ sb_put(buffer, slot) }
     tmpPhase.set(0)
-    commitMeta()
+    forceMeta()
     defragmentationCount += 1
   }
 
@@ -214,7 +214,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
     resetSlots()
     data.foreach { case (buffer, slot) ⇒ sb_put(buffer, slot) }
     tmpPhase.set(0)
-    commitMeta()
+    forceMeta()
     defragmentationCount += 1
   }
 
@@ -422,7 +422,7 @@ class FileRangeStoreWithSortingBuffer(file: File, totalSlots: Int, withClean: Bo
   }
 
   override def copyTo(toFile: File): FileRangeStoreWithSortingBuffer = {
-    commitAll()
+    forceAll()
     toFile.delete()
     val toChannel = new RandomAccessFile(toFile, "rw").getChannel
     writeLock.synchronized(toChannel.transferFrom(this.channel.position(0), 0, this.channel.size()))

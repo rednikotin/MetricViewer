@@ -76,4 +76,6 @@ object MyTags {
 
   object FileStoreTest extends Tag("FileStoreTest")
 
+  object FileSequenceTest extends Tag("FileSequenceTest")
+
 }

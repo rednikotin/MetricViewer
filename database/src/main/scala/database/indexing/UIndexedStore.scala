@@ -2,18 +2,18 @@ package database.indexing
 
 import java.nio.ByteBuffer
 
-import database.Store
+import database.{RWLocks, Store}
 import database.indexing.UIndexedStore._
 
 object UIndexedStore {
   class DuplicatedValueOnIndexException(msg: String) extends RuntimeException(msg)
 }
 
-trait UIndexedStore extends Store {
+trait UIndexedStore extends Store[ByteBuffer] {
   def selectBy(index: Int)(k: Any): Option[ByteBuffer]
 }
 
-class UIndexedFileStore(store: Store, funs: (ByteBuffer ⇒ Any)*) extends UIndexedStore {
+class UIndexedFileStore(store: Store[ByteBuffer] with RWLocks, funs: (ByteBuffer ⇒ Any)*) extends UIndexedStore with RWLocks {
   private val indexes = funs.map(fun ⇒ (fun, scala.collection.mutable.HashMap[Any, Int]()))
 
   private def init() = store.withWriteLock {
@@ -68,10 +68,13 @@ class UIndexedFileStore(store: Store, funs: (ByteBuffer ⇒ Any)*) extends UInde
     indexes.foreach(_._2.clear())
     store.truncate()
   }
-  def commit(): Unit = store.commit()
+  def force(): Unit = store.force()
   def check(id: Int): Unit = store.check(id)
   def selectBy(index: Int)(k: Any): Option[ByteBuffer] = store.withReadLock {
     indexes(index)._2.get(k).flatMap(store.select)
   }
   init()
+
+  def withReadLock[T](thunk: ⇒ T): T = store.withReadLock(thunk)
+  def withWriteLock[T](thunk: ⇒ T): T = store.withWriteLock(thunk)
 }

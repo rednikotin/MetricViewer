@@ -3,29 +3,38 @@ package database
 import java.io.{File, RandomAccessFile}
 import java.nio.{ByteBuffer, MappedByteBuffer}
 import java.nio.channels.FileChannel
-
 import scala.collection.mutable
 import FileStore._
 import database.space.{Intervals, SpaceManager}
-
 import scala.util.{Failure, Success, Try}
 
-trait Store {
-  def insert(buffer: ByteBuffer): Int
-  def update(id: Int, buffer: ByteBuffer): Unit
+trait Store[V] {
+  def insert(value: V): Int
+  def update(id: Int, value: V): Unit
   def delete(id: Int): Unit
-  def select(id: Int): Option[ByteBuffer]
-  def iterator(): Iterator[(Int, ByteBuffer)]
+  def delete(ids: Iterable[Int]): Unit = ids.foreach(delete)
+  def select(id: Int): Option[V]
+  def iterator(): Iterator[(Int, V)]
   def truncate(): Unit
-  def commit(): Unit
+  def force(): Unit
   def check(id: Int): Unit
+}
+
+trait RWLocks {
+  def withReadLock[T](thunk: ⇒ T): T
+  def withWriteLock[T](thunk: ⇒ T): T
+}
+
+trait RWLocksImpl extends RWLocks {
   private val rwLock = new java.util.concurrent.locks.ReentrantReadWriteLock()
+
   def withReadLock[T](thunk: ⇒ T): T = {
     rwLock.readLock().lock()
     val res = Try(thunk)
     rwLock.readLock().unlock()
     res.get
   }
+
   def withWriteLock[T](thunk: ⇒ T): T = {
     rwLock.writeLock().lock()
     val res = Try(thunk)
@@ -45,7 +54,7 @@ object FileStore {
 }
 
 // 1-writer many-readers
-class FileStore(val file: File, val maxRows: Int, val maxSize: Int, val reinit: Boolean = false) extends Store {
+class FileStore(val file: File, val maxRows: Int, val maxSize: Int, val reinit: Boolean = false) extends Store[ByteBuffer] with RWLocksImpl {
 
   private def ceil4k(i: Int) = if (i % 4096 == 0) i else (i / 4096 + 1) * 4096
   private val size4 = ceil4k(maxRows * 4)
@@ -109,9 +118,9 @@ class FileStore(val file: File, val maxRows: Int, val maxSize: Int, val reinit: 
     if (res != len) {
       throw new WriteFailedException(s"failed to save $len bytes, for id=$id, only $res bytes saved")
     }
-    pos_buffer.put(id, pos + 1)
     len_buffer.put(id, len)
     chk_buffer.put(id, chk0)
+    pos_buffer.put(id, pos + 1)
   }
 
   def insert(buffer: ByteBuffer): Int = withWriteLock {
@@ -126,9 +135,9 @@ class FileStore(val file: File, val maxRows: Int, val maxSize: Int, val reinit: 
   def delete(id: Int): Unit = withWriteLock {
     val pos = checkPos(id)
     val len = len_buffer.get(id)
-    pos_buffer.put(id, 0)
     len_buffer.put(id, 0)
     chk_buffer.put(id, 0)
+    pos_buffer.put(id, 0)
     free_rows.enqueue(id)
     free_space.release(pos, len)
   }
@@ -198,16 +207,16 @@ class FileStore(val file: File, val maxRows: Int, val maxSize: Int, val reinit: 
       free_rows += idx
       idx += 1
     }
-    commit()
+    force()
   }
 
-  def commitMeta(): Unit = {
+  def forceMeta(): Unit = {
     chk_mmap.force()
     len_mmap.force()
     pos_mmap.force()
   }
 
-  def commit(): Unit = {
+  def force(): Unit = {
     channel.force(false)
   }
 

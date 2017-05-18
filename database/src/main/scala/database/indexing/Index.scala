@@ -1,53 +1,46 @@
 package database.indexing
 
-import java.nio.ByteBuffer
-import database.FileStore
+import database.RWLocks
 
-trait Index[K] {
-  def selectBy(k: K): Iterable[ByteBuffer]
+trait Index[K, V] {
+  def select(k: K): Iterable[V]
+  def selectId(K: K): Iterable[Int]
 }
 
-class IndexImpl[K](fun: ByteBuffer ⇒ K, store: FileStore) extends Index[K] with IndexOps {
-  private val index = scala.collection.mutable.HashMap[K, scala.collection.mutable.HashSet[Int]]()
-  def put(buffer: ByteBuffer): Int ⇒ Unit = {
-    buffer.mark()
-    val k = fun(buffer)
-    buffer.reset()
+class IndexImpl[K, V](fun: V ⇒ K, rwlocks: RWLocks) extends Index[K, V] with IndexOps[V] {
+  private val index = scala.collection.mutable.HashMap[K, scala.collection.mutable.HashMap[Int, V]]()
+  def put(value: V): Int ⇒ Unit = {
+    val k = fun(value)
     (id: Int) ⇒
       index.get(k) match {
-        case Some(set) ⇒
-          set += id
+        case Some(rows) ⇒
+          rows += id → value
         case None ⇒
-          val set = scala.collection.mutable.HashSet(id)
-          index += k → set
+          val rows = scala.collection.mutable.HashMap(id → value)
+          index += k → rows
       }
   }
-  def update(buffer: ByteBuffer, id: Int): () ⇒ Unit = {
-    buffer.mark()
-    val k = fun(buffer)
-    buffer.reset()
+  def update(value: V, id: Int): () ⇒ Unit = {
+    val k = fun(value)
     () ⇒
       index.get(k) match {
-        case Some(set) ⇒
-          set += id
+        case Some(rows) ⇒
+          rows += id → value
         case None ⇒
-          val set = scala.collection.mutable.HashSet(id)
-          index += k → set
+          val rows = scala.collection.mutable.HashMap(id → value)
+          index += k → rows
       }
   }
-  def remove(buffer: ByteBuffer, id: Int): Unit = {
-    buffer.mark()
-    val k = fun(buffer)
-    buffer.reset()
+  def remove(value: V, id: Int): Unit = {
+    val k = fun(value)
     index.get(k) match {
-      case Some(set) ⇒
-        set -= id
-        if (set.isEmpty) index -= k
+      case Some(rows) ⇒
+        rows -= id
+        if (rows.isEmpty) index -= k
       case None ⇒
     }
   }
   def clear(): Unit = index.clear()
-  def selectBy(k: K): Iterable[ByteBuffer] = {
-    index.get(k).toIterable.flatMap(set ⇒ set.map(id ⇒ store.select(id).get))
-  }
+  def select(k: K): Iterable[V] = rwlocks.withReadLock(index.get(k).toIterable.flatMap(_.values).toList)
+  def selectId(k: K): Iterable[Int] = rwlocks.withReadLock(index.get(k).toIterable.flatMap(_.keySet).toList)
 }

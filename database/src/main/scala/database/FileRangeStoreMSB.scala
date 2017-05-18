@@ -225,7 +225,7 @@ class FileRangeStoreMSB(file: File, totalSlots: Int, keepTime: Int, withClean: B
   }
 
   override def copyTo(toFile: File): FileRangeStoreMSB = {
-    commitAll()
+    forceAll()
     toFile.delete()
     val toChannel = new RandomAccessFile(toFile, "rw").getChannel
     writeLock.synchronized(toChannel.transferFrom(this.channel.position(0), 0, this.channel.size()))

@@ -1,50 +1,40 @@
 package database.indexing
 
-import java.nio.ByteBuffer
-import database.FileStore
+import database.RWLocks
 import UniqueIndex._
 
 object UniqueIndex {
   class DuplicatedValueOnIndexException(msg: String) extends RuntimeException(msg)
 }
 
-trait UniqueIndex[K] {
-  def selectBy(k: K): Option[ByteBuffer]
+trait UniqueIndex[K, V] {
+  def select(k: K): Option[V]
+  def selectId(k: K): Option[Int]
 }
 
-class UniqueIndexImpl[K](fun: ByteBuffer ⇒ K, store: FileStore) extends UniqueIndex[K] with IndexOps {
-  private val index = scala.collection.mutable.HashMap[K, Int]()
-  def checkPut(buffer: ByteBuffer, id: Int): Unit = {
-
-  }
-  def put(buffer: ByteBuffer): Int ⇒ Unit = {
-    buffer.mark()
-    val k = fun(buffer)
-    buffer.reset()
+class UniqueIndexImpl[K, V](fun: V ⇒ K, rwlocks: RWLocks) extends UniqueIndex[K, V] with IndexOps[V] {
+  private val index = scala.collection.mutable.HashMap[K, (Int, V)]()
+  def put(value: V): Int ⇒ Unit = {
+    val k = fun(value)
     if (index.contains(k)) {
-      val id2 = index(k)
+      val (id2, _) = index(k)
       throw new DuplicatedValueOnIndexException(s"key=$k, id2=$id2")
     }
-    (id: Int) ⇒ index += k → id
+    (id: Int) ⇒ index += k → (id, value)
   }
-  def update(buffer: ByteBuffer, id: Int): () ⇒ Unit = {
-    buffer.mark()
-    val k = fun(buffer)
-    buffer.reset()
-    if (index.contains(k) && index(k) != id) {
+  def update(value: V, id: Int): () ⇒ Unit = {
+    val k = fun(value)
+    if (index.contains(k) && index(k)._1 != id) {
       val id2 = index(k)
       throw new DuplicatedValueOnIndexException(s"key=$k, id2=$id2, id=$id")
     }
-    () ⇒ index += k → id
+    () ⇒ index += k → (id, value)
   }
-  def remove(buffer: ByteBuffer, id: Int): Unit = {
-    buffer.mark()
-    val k = fun(buffer)
-    buffer.reset()
+  def remove(value: V, id: Int): Unit = {
+    val k = fun(value)
     index -= k
   }
   def clear(): Unit = index.clear()
-  def selectBy(k: K): Option[ByteBuffer] = {
-    index.get(k).map(id ⇒ store.select(id).get)
-  }
+  def select(k: K): Option[V] = rwlocks.withReadLock(index.get(k).map(_._2))
+  def selectId(k: K): Option[Int] = rwlocks.withReadLock(index.get(k).map(_._1))
 }

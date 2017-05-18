@@ -2,13 +2,11 @@ package database
 
 import java.io.{File, RandomAccessFile}
 import java.nio.ByteBuffer
-
-import org.scalatest.{BeforeAndAfterAll, Matchers, Tag, WordSpecLike}
+import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
 import database.util.BufferUtil._
 import database.FileRangeStore._
-
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
 import MyTags._
@@ -59,7 +57,7 @@ class FileRangeStoreTest
       assert(fileStore1.get(1).await().get() === 4)
       assert(fileStore1.get(0).await().limit() === 3)
 
-      fileStore1.commitAll()
+      fileStore1.forceAll()
       fileStore1.raf.getChannel.close()
       rewindBBs()
       val fileStore2 = new FileRangeStore(fileTest1, 123456)

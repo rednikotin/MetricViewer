@@ -2,13 +2,18 @@ package database
 
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicInteger
 
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.testkit.{DefaultTimeout, TestKit}
 import akka.actor._
 import database.util.BufferUtil._
 import MyTags._
-import database.indexing.{IndexedFileStore, UIndexedFileStore, UIndexedStore}
+import database.indexing._
+import database.sequence.FileSequence
+
+import scala.concurrent.Future
+import scala.util.{Failure, Random, Success, Try}
 
 class FileStoreTest
     extends TestKit(ActorSystem("FileRangeStoreTest"))
@@ -16,6 +21,8 @@ class FileStoreTest
     with WordSpecLike
     with Matchers
     with BeforeAndAfterAll {
+
+  import system.dispatcher
 
   val arr1: Array[Byte] = Array(1.toByte, 2.toByte, 3.toByte)
   val arr2: Array[Byte] = Array(4.toByte, 5.toByte, 6.toByte, 7.toByte)
@@ -191,24 +198,24 @@ class FileStoreTest
 
     }
 
-    "indesed store approach" taggedAs FileStoreTest in {
+    "indexed store approach" taggedAs FileStoreTest in {
       val maxRows = 100
       val fileTest = new File("data/store-FST0004")
       fileTest.delete()
       val fs = new FileStore(fileTest, maxRows, 1 << 20)
-      val ifs = new IndexedFileStore(fs)
-      val idx0 = ifs.addIndex(_.get(0))
-      val uidx1 = ifs.addUniqueIndex(_.get(1))
-      val idxF = ifs.addIndex(_.toSeq.sum)
+      val ifs = new IndexedFileStore(fs, (x: ByteBuffer) ⇒ x, (x: ByteBuffer) ⇒ x)
+      val idx0: Index[Byte, ByteBuffer] = ifs.addIndex(_.get(0))
+      val uidx1: UniqueIndex[Byte, ByteBuffer] = ifs.addUniqueIndex(_.get(1))
+      val idxF: Index[Byte, ByteBuffer] = ifs.addIndex(_.toSeq.sum)
 
       val id1 = ifs.insert(buf(1, 2, 2, 3))
       val id2 = ifs.insert(buf(1, 4, 6, 4))
       val id3 = ifs.insert(buf(2, 1, 8, 4))
       val id4 = ifs.insert(buf(2, 3, 1, 0))
 
-      assert(idx0.selectBy(2).map(_.toSeq).toSet === Set(Seq(2, 1, 8, 4), Seq(2, 3, 1, 0)))
-      assert(uidx1.selectBy(2).get.toSeq === Seq(1, 2, 2, 3))
-      assert(idxF.selectBy(15).map(_.toSeq).toSet === Set(Seq(1, 4, 6, 4), Seq(2, 1, 8, 4)))
+      assert(idx0.select(2).map(_.toSeq).toSet === Set(Seq(2, 1, 8, 4), Seq(2, 3, 1, 0)))
+      assert(uidx1.select(2).get.toSeq === Seq(1, 2, 2, 3))
+      assert(idxF.select(15).map(_.toSeq).toSet === Set(Seq(1, 4, 6, 4), Seq(2, 1, 8, 4)))
 
       assertThrows[indexing.UniqueIndex.DuplicatedValueOnIndexException](ifs.insert(buf(9, 1, 1, -2)))
       assertThrows[indexing.UniqueIndex.DuplicatedValueOnIndexException](ifs.update(id4, buf(9, 1, 1, -2)))
@@ -217,17 +224,117 @@ class FileStoreTest
       ifs.update(id4, buf(9, 6, 1, -2))
       ifs.update(id4, buf(9, 3, 1, -2))
 
-      assert(uidx1.selectBy(3).get.toSeq === Seq(9, 3, 1, -2))
+      assert(uidx1.select(3).get.toSeq === Seq(9, 3, 1, -2))
 
-      assert(uidx1.selectBy(10) === None)
-      assert(idx0.selectBy(10).toSeq === Nil)
-      assert(idxF.selectBy(10).toSeq === Nil)
+      assert(uidx1.select(10) === None)
+      assert(idx0.select(10).toSeq === Nil)
+      assert(idxF.select(10).toSeq === Nil)
 
       val superBB = new Array[Byte](1 << 20)
       assertThrows[FileStore.NoSpaceLeftException](ifs.insert(ByteBuffer.wrap(superBB)))
 
-      assert(idx0.selectBy(0).toSeq === Nil)
-      assert(uidx1.selectBy(0) === None)
+      assert(idx0.select(0).toSeq === Nil)
+      assert(uidx1.select(0) === None)
+
+    }
+
+    "indexed store test2" taggedAs FileStoreTest in {
+      import boopickle.Default._
+      val maxRows = 100
+      val file = new File("data/store-FST0005")
+      file.delete()
+
+      case class Data(id: Int, name: String, group: Int)
+      def pack(d: Data): ByteBuffer = Pickle.intoBytes(d)
+      def unpack(buffer: ByteBuffer): Data = Unpickle[Data].fromBytes(buffer)
+      val fs = new FileStore(file, maxRows, 1 << 20)
+      val ifs = new IndexedFileStore(fs, pack, unpack)
+      val uidxId: UniqueIndex[Int, Data] = ifs.addUniqueIndex(_.id)
+      val uidxName: UniqueIndex[String, Data] = ifs.addUniqueIndex(_.name)
+      val idxGroup: Index[Int, Data] = ifs.addIndex(_.group)
+
+      ifs.insert(Data(1, "A", 1))
+      ifs.insert(Data(2, "B", 2))
+      ifs.insert(Data(3, "C", 1))
+      ifs.insert(Data(4, "D", 2))
+      ifs.insert(Data(5, "E", 1))
+
+      assert(uidxId.select(1).get === Data(1, "A", 1))
+      assert(uidxName.select("D").get.id === 4)
+      assert(idxGroup.select(2).map(_.name).toSet === Set("B", "D"))
+
+      ifs.delete(idxGroup.selectId(1))
+
+      assert(uidxId.select(1) === None)
+
+      ifs.reload()
+
+      assert(uidxId.select(1) === None)
+
+    }
+
+    "concurrent test" taggedAs (FileStoreTest, FileSequenceTest) in {
+      import boopickle.Default._
+      val maxRows = 100
+      val file = new File("data/store-FST0005")
+      file.delete()
+
+      case class Data(id: Int, name: String, group: Int)
+      def pack(d: Data): ByteBuffer = Pickle.intoBytes(d)
+
+      def unpack(buffer: ByteBuffer): Data = Unpickle[Data].fromBytes(buffer)
+
+      val fs = new FileStore(file, maxRows, 1 << 20)
+      val ifs = new IndexedFileStore(fs, pack, unpack)
+      val uidxId: UniqueIndex[Int, Data] = ifs.addUniqueIndex(_.id)
+      val uidxName: UniqueIndex[String, Data] = ifs.addUniqueIndex(_.name)
+      val idxGroup: Index[Int, Data] = ifs.addIndex(_.group)
+
+      val fileS = new File("data/store-FST0005-S")
+      fileS.delete()
+      val fseq = new FileSequence(fileS, 1)
+      val idx = fseq.getSequence(0, 0)
+      idx.setVal(1)
+      idx.force()
+
+      @volatile var cnt = 0
+      val rnd = new Random(0)
+
+      Future.sequence(for (i ← 1 to 1000) yield {
+        Future {
+          for (j ← 1 to 100) {
+            Try {
+              rnd.nextInt(3) match {
+                case 0 ⇒
+                  val id = idx.nextVal()
+                  val data = Data(id, "NAME-" + id, rnd.nextInt(10))
+                  ifs.insert(data)
+                case 1 ⇒
+                  val rowid = rnd.nextInt(maxRows)
+                  val id = 2 * idx.nextVal()
+                  val data = Data(rnd.nextInt(id), "NAME-" + id, rnd.nextInt(10))
+                  ifs.update(rowid, data)
+                case 2 ⇒
+                  val rowid = rnd.nextInt(maxRows)
+                  ifs.delete(rowid)
+              }
+            } match {
+              case Success(_) ⇒
+              case Failure(ex) ⇒ ex match {
+                case _: FileStore.RowNotExistsException             ⇒
+                case _: FileStore.NoRowsLeftException               ⇒
+                case _: UniqueIndex.DuplicatedValueOnIndexException ⇒
+                case _ ⇒
+                  if (cnt < 10) ex.printStackTrace()
+                  cnt += 1
+              }
+            }
+          }
+        }
+      }).await()
+
+      val ids = ifs.iterator().map(_._2.id).toList
+      assert(ids.distinct.size === ids.size)
 
     }
   }

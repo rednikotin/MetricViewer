@@ -187,10 +187,10 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
   reserved_mmap.load()
   slots_mmap.load()
 
-  def commitReserved(): Unit = reserved_mmap.force()
-  def commitMeta(): Unit = meta_mmap.force()
-  def commitSlots(): Unit = slots_mmap.force()
-  def commitAll(): Unit = async.force(false)
+  def forceReserved(): Unit = reserved_mmap.force()
+  def forceMeta(): Unit = meta_mmap.force()
+  def forceSlots(): Unit = slots_mmap.force()
+  def forceAll(): Unit = async.force(false)
 
   private var mmapWrite = false
   def enableMmapWrite(): Unit = this.synchronized {
@@ -485,7 +485,7 @@ class FileRangeStore(val file: File, val totalSlots: Int, withCrean: Boolean = f
   }
 
   def copyTo(toFile: File): FileRangeStore = {
-    commitAll()
+    forceAll()
     toFile.delete()
     val toChannel = new RandomAccessFile(toFile, "rw").getChannel
     writeLock.synchronized(toChannel.transferFrom(this.channel.position(0), 0, this.channel.size()))

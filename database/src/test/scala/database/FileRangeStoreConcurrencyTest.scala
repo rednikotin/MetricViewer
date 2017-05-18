@@ -168,7 +168,7 @@ class FileRangeStoreConcurrencyTest
       }
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       assert(fileStore.size === cnt)
       assert(fileStore.get(123).await().size === sz)
@@ -236,7 +236,7 @@ class FileRangeStoreConcurrencyTest
       }
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       assert(fileStore.size === cnt)
       assert(fileStore.get(123).await().size === sz)
@@ -319,7 +319,7 @@ class FileRangeStoreConcurrencyTest
       }
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       assert(fileStore.size === cnt)
       assert(fileStore.get(123).await().size === sz)
@@ -402,7 +402,7 @@ class FileRangeStoreConcurrencyTest
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
 
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       assert(fileStore.size === cnt)
       assert(fileStore.get(123).await().size === sz)
@@ -484,7 +484,7 @@ class FileRangeStoreConcurrencyTest
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
 
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       assert(fileStore.size === cnt)
       assert(fileStore.get(123).await().size === sz)
@@ -558,7 +558,7 @@ class FileRangeStoreConcurrencyTest
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
 
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       assert(fileStore.size === cnt)
       assert(fileStore.get(123).await().size === sz)
@@ -630,7 +630,7 @@ class FileRangeStoreConcurrencyTest
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
 
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       assert(fileStore.size === cnt)
       assert(fileStore.get(123).await().size === sz)
@@ -714,7 +714,7 @@ class FileRangeStoreConcurrencyTest
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
 
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       assert(fileStore.size === cnt)
       assert(fileStore.get(123).await().size === sz)
@@ -799,7 +799,7 @@ class FileRangeStoreConcurrencyTest
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
 
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       assert(fileStore.size === cnt)
       assert(fileStore.get(123).await().size === sz)
@@ -881,7 +881,7 @@ class FileRangeStoreConcurrencyTest
       over.completeWith(Future.sequence(ress).map(x ⇒ System.nanoTime()))
 
       res.await(5 minutes)
-      fileStore.commitAll()
+      fileStore.forceAll()
 
       t0 = System.nanoTime()
       val resr: Seq[(Int, Int, Long)] = Future.sequence(for (i ← scala.util.Random.shuffle((0 until cnt).toList)) yield {
